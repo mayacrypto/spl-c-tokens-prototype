@@ -1,8 +1,17 @@
+use std::borrow::BorrowMut;
+
 use solana_program::{
-    account_info::AccountInfo,
+    program_pack::{IsInitialized, Pack},
+    account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
+    program_error::ProgramError,
     pubkey::Pubkey,
     msg,
+};
+
+use curve25519_dalek::{
+    ristretto::CompressedRistretto,
+    traits::Identity,
 };
 
 use crate::{
@@ -10,6 +19,8 @@ use crate::{
     state::WorldState,
     state::MintTX,
     state::TransferTX,
+
+    state::AggPubkey,
 };
 
 
@@ -23,16 +34,16 @@ impl Processor {
         let instruction = ConfTXInstruction::unpack(instruction_data)?;
 
         match instruction {
-            ConfTXInstruction::Initialize { st } => {
+            ConfTXInstruction::Initialize => {
                 msg!("Instruction: Initialize");
-                Self::process_initialize(accounts, st, program_id)
+                Self::process_initialize(accounts, program_id)
             }
             ConfTXInstruction::Mint { tx } => {
-                msg!("Instruction: Transact");
+                msg!("Instruction: Mint");
                 Self::process_mint(accounts, tx, program_id)
             }
             ConfTXInstruction::Transfer { tx } => {
-                msg!("Instruction: Transact");
+                msg!("Instruction: Transfer");
                 Self::process_transfer(accounts, tx, program_id)
             }
         }
@@ -40,11 +51,31 @@ impl Processor {
     }
 
     fn process_initialize(
-        _account: &[AccountInfo],
-        _st: WorldState,
+        accounts: &[AccountInfo],
         _program_id: &Pubkey,
-        ) -> ProgramResult {
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let initializer = next_account_info(account_info_iter)?;
+
+        if !initializer.is_signer {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+
+        let world_state_account = next_account_info(account_info_iter)?;
+        let mut world_state = WorldState::unpack_unchecked(&world_state_account.data.borrow())?;
+        if world_state.is_initialized() {
+            return Err(ProgramError::AccountAlreadyInitialized);
+        }
+
+        world_state.is_initialized = true;
+        world_state.initializer = *initializer.key;
+        world_state.supply = 0;
+        world_state.agg_pk = AggPubkey::new(CompressedRistretto::identity());
+
+        // WorldState::pack(world_state, &mut world_state_account.data.borrow_mut())?;
+
         Ok(())
+
     }
 
     fn process_mint(
