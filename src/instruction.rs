@@ -3,8 +3,9 @@ use solana_program::program_error::ProgramError;
 use crate::{
     error::CTokenError::InvalidInstruction,
     state::{
-        TXState,
-        Transaction,
+        WorldState,
+        MintTX,
+        TransferTX,
     }
 };
 
@@ -13,13 +14,19 @@ pub enum ConfTXInstruction {
     /// Generates the initial state of the transactions
     // TODO: List associated accounts
     Initialize {
-        st: TXState,
+        st: WorldState,
     },
 
-    /// Aggregates a transaction to the state of the transactions
+    /// Aggregates a mint transaction to the world state
     // TODO: List associated accounts
-    Transact {
-        tx: Transaction,
+    Mint {
+        tx: MintTX,
+    },
+
+    /// Aggregates a transfer transaction to the world state
+    // TODO: List associated accounts
+    Transfer {
+        tx: TransferTX,
     },
 }
 
@@ -30,21 +37,29 @@ impl ConfTXInstruction {
             0 => Self::Initialize {
                 st: Self::unpack_state(rest)?,
             },
-            1 => Self::Transact {
-                tx: Self::unpack_transaction(rest)?,
+            1 => Self::Mint {
+                tx: Self::unpack_mint(rest)?,
+            },
+            2 => Self::Transfer {
+                tx: Self::unpack_transfer(rest)?,
             },
             _ => return Err(InvalidInstruction.into()),
         })
     }
 
-    pub fn unpack_state(_input: &[u8]) -> Result<TXState, ProgramError> {
+    pub fn unpack_state(_input: &[u8]) -> Result<WorldState, ProgramError> {
         // TODO: Update
-        Ok(TXState)
+        Ok(Default::default())
     }
 
-    pub fn unpack_transaction(_input: &[u8]) -> Result<Transaction, ProgramError> {
+    pub fn unpack_mint(_input: &[u8]) -> Result<MintTX, ProgramError> {
         // TODO: Update
-        Ok(Transaction)
+        Ok(Default::default())
+    }
+
+    pub fn unpack_transfer(_input: &[u8]) -> Result<TransferTX, ProgramError> {
+        // TODO: Update
+        Ok(Default::default())
     }
 }
 

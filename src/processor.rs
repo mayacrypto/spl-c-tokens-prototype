@@ -7,8 +7,9 @@ use solana_program::{
 
 use crate::{
     instruction::ConfTXInstruction,
-    state::TXState,
-    state::Transaction,
+    state::WorldState,
+    state::MintTX,
+    state::TransferTX,
 };
 
 
@@ -26,9 +27,13 @@ impl Processor {
                 msg!("Instruction: Initialize");
                 Self::process_initialize(accounts, st, program_id)
             }
-            ConfTXInstruction::Transact { tx } => {
+            ConfTXInstruction::Mint { tx } => {
                 msg!("Instruction: Transact");
-                Self::process_transact(accounts, tx, program_id)
+                Self::process_mint(accounts, tx, program_id)
+            }
+            ConfTXInstruction::Transfer { tx } => {
+                msg!("Instruction: Transact");
+                Self::process_transfer(accounts, tx, program_id)
             }
         }
 
@@ -36,15 +41,23 @@ impl Processor {
 
     fn process_initialize(
         _account: &[AccountInfo],
-        _st: TXState,
+        _st: WorldState,
         _program_id: &Pubkey,
         ) -> ProgramResult {
         Ok(())
     }
 
-    fn process_transact(
+    fn process_mint(
         _account: &[AccountInfo],
-        _st: Transaction,
+        _st: MintTX,
+        _program_id: &Pubkey,
+        ) -> ProgramResult {
+        Ok(())
+    }
+
+    fn process_transfer(
+        _account: &[AccountInfo],
+        _st: TransferTX,
         _program_id: &Pubkey,
         ) -> ProgramResult {
         Ok(())
