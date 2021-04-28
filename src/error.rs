@@ -2,11 +2,18 @@ use thiserror::Error;
 
 use solana_program::program_error::ProgramError;
 
-#[derive(Error, Debug, Copy, Clone)]
+/// Errors that may be returned by the CToken program.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum CTokenError {
+    /// The account cannot be initialized because it is already being used.
+    #[error("Already in use")]
+    AlreadyInUse,
     /// Invalid instruction
     #[error("Invalid Instruction")]
     InvalidInstruction,
+    /// Lamport balance below rent-exempt threshold. (TODO: Update)
+    #[error("Lamport balance below rent-exempt threshold")]
+    NotRentExempt,
 }
 
 impl From<CTokenError> for ProgramError {

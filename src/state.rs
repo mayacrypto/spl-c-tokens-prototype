@@ -10,30 +10,32 @@ use solana_program::{
     program_error::ProgramError,
 };
 
-pub struct WorldState {
-    pub is_initialized: bool, // 1 byte
-    pub initializer: Pubkey, // 32 bytes
+/// Mint data.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Mint {
+    /// Mint authority.
+    pub mint_authority: Pubkey, // 32 bytes
+    /// Total supply of tokens.
     pub supply: u64, // 8 bytes
-    pub agg_pk: AggPubkey, // 32 bytes
+    /// Is `true` if this structure has been initialized
+    pub is_initialized: bool, // 1 byte
 }
-
-impl Sealed for WorldState {}
-impl IsInitialized for WorldState {
+impl Sealed for Mint {}
+impl IsInitialized for Mint {
     fn is_initialized(&self) -> bool {
         self.is_initialized
     }
 }
-
-impl Pack for WorldState {
-    const LEN: usize = 73;
+impl Pack for Mint {
+    const LEN: usize = 41;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, WorldState::LEN];
+        let src = array_ref![src, 0, Mint::LEN];
         let (
-            is_initialized,
-            initializer,
-            supply,
-            agg_pk,
-        ) = array_refs![src, 1, 32, 8, 32];
+            mint_authority, 
+            supply, 
+            is_initialized
+        ) = array_refs![src, 32, 8, 1];
 
         let is_initialized = match is_initialized {
             [0] => false,
@@ -41,37 +43,30 @@ impl Pack for WorldState {
             _ => return Err(ProgramError::InvalidAccountData),
         };
 
-        Ok(WorldState {
-            is_initialized,
-            initializer: Pubkey::new_from_array(*initializer),
+        Ok(Mint {
+            mint_authority: Pubkey::new_from_array(*mint_authority),
             supply: u64::from_le_bytes(*supply),
-            agg_pk: AggPubkey::new_from_array(*agg_pk),
+            is_initialized,
         })
     }
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, WorldState::LEN];
+        let dst = array_mut_ref![dst, 0, 41];
         let (
-            is_initialized_dst,
-            initializer_dst,
+            mint_authority_dst,
             supply_dst,
-            agg_pk_dst,
-        ) = mut_array_refs![dst, 1, 32, 8, 32];
-
-        let WorldState {
-            is_initialized,
-            initializer,
+            is_initialized_dst,
+        ) = mut_array_refs![dst, 32, 8, 1];
+        let &Mint {
+            ref mint_authority,
             supply,
-            agg_pk,
+            is_initialized,
         } = self;
-
-        is_initialized_dst[0] = *is_initialized as u8;
-        initializer_dst.copy_from_slice(initializer.as_ref());
+        mint_authority_dst.copy_from_slice(mint_authority.as_ref());
         *supply_dst = supply.to_le_bytes();
-        agg_pk_dst.copy_from_slice(agg_pk.as_ref());
+        is_initialized_dst[0] = is_initialized as u8;
     }
 }
-
 
 pub struct AggPubkey(CompressedRistretto);
 impl AggPubkey {
