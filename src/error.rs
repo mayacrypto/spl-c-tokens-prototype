@@ -9,11 +9,17 @@ pub enum CTokenError {
     #[error("Already in use")]
     AlreadyInUse,
     /// Invalid instruction
-    #[error("Invalid Instruction")]
+    #[error("Invalid instruction")]
     InvalidInstruction,
     /// Lamport balance below rent-exempt threshold. (TODO: Update)
     #[error("Lamport balance below rent-exempt threshold")]
     NotRentExempt,
+    /// Operation overflowed
+    #[error("Operation overflowed")]
+    Overflow,
+    /// Cryptographic proof is invalid
+    #[error("Invalid proof")]
+    InvalidProof,
 }
 
 impl From<CTokenError> for ProgramError {
