@@ -1,4 +1,5 @@
 use thiserror::Error;
+use bulletproofs::ProofError;
 
 use solana_program::program_error::ProgramError;
 
@@ -25,5 +26,11 @@ pub enum CTokenError {
 impl From<CTokenError> for ProgramError {
     fn from(e: CTokenError) -> Self {
         ProgramError::Custom(e as u32)
+    }
+}
+
+impl From<ProofError> for CTokenError {
+    fn from(_: ProofError) -> Self {
+        CTokenError::InvalidProof
     }
 }
