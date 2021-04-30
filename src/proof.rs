@@ -36,6 +36,7 @@ impl MintTransaction {
 
         let OutComms { comms, .. } = out_comms;
         let ProofKnowledge { nonce, scalar } = proof_knowledge;
+        let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes());
         // ignoring decompression error for now
         let nonce = nonce.decompress().unwrap();
         let mut aggregate = RistrettoPoint::identity();
@@ -44,7 +45,6 @@ impl MintTransaction {
         });
         let PedersenBase{ G, .. } = PedersenBase::default();
 
-        let c = Scalar::hash_from_bytes::<Sha3_512>(b"");
         let supply = Scalar::from(*supply)*G;
         if scalar*G == c*(aggregate - supply) + nonce {
             return Err(CTokenError::InvalidProof);
@@ -53,7 +53,6 @@ impl MintTransaction {
         Ok(())
     }
 }
-
 
 pub struct TransferTransaction {
     /// Commitments spent
@@ -64,8 +63,30 @@ pub struct TransferTransaction {
     pub proof_knowledge: ProofKnowledge,
 }
 impl TransferTransaction {
-    pub fn verify_proofs(&self) -> bool {
-        true
+    pub fn verify_proofs(&self) -> Result<(), CTokenError> {
+        let Self { in_comms, out_comms, proof_knowledge } = self;
+        out_comms.verify_range_proofs()?;
+
+        let InComms { comms: in_comms } = in_comms;
+        let OutComms { comms: out_comms, ..  } = out_comms;
+        let ProofKnowledge { nonce, scalar  } = proof_knowledge;
+        let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes());
+        // ignoring decompression error for now
+        let nonce = nonce.decompress().unwrap();
+        let mut aggregate = RistrettoPoint::identity();
+        in_comms.iter().for_each(| PedersenComm{ C } | {
+            aggregate = aggregate - C.decompress().unwrap();
+        });
+        out_comms.iter().for_each(| PedersenComm{ C } | {
+            aggregate = aggregate + C.decompress().unwrap();
+        });
+        let PedersenBase{ G, .. } = PedersenBase::default();
+
+        if scalar*G == c*aggregate + nonce {
+            return Err(CTokenError::InvalidProof);
+        }
+
+        Ok(())
     }
 }
 
