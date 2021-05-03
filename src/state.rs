@@ -7,6 +7,8 @@ use solana_program::{
     program_error::ProgramError,
 };
 
+use crate::proof::PedersenComm;
+
 /// Mint data.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -73,6 +75,7 @@ pub struct Account {
     pub mint: Pubkey,
     /// Is `true` if this account has been initialized
     pub is_initialized: bool,
+    // pub comm: PedersenComm,
 }
 impl Sealed for Account {}
 impl IsInitialized for Account {

@@ -9,6 +9,7 @@ use curve25519_dalek::{
     constants::RISTRETTO_BASEPOINT_COMPRESSED,
 };
 use sha3::Sha3_512;
+use borsh::{BorshSerialize, BorshDeserialize};
 use bulletproofs::{
     PedersenGens,
     BulletproofGens,
@@ -18,20 +19,21 @@ use bulletproofs::{
 use merlin::Transcript;
 use rand_core::OsRng;
 use crate::error::CTokenError;
+use std::io::{Write, Error};
 
 const RANGE_BIT_LENGTH: usize = 64;
 
-pub struct MintTransaction {
-    /// Supply of newly minted tokens
-    pub supply: u64,
+pub struct MintData {
+    /// Amount of newly minted tokens
+    pub amount: u64,
     /// Commitments produced
     pub out_comms: OutComms,
     /// Proof of knowledge to validate transaction
     pub proof_knowledge: ProofKnowledge,
 }
-impl MintTransaction {
+impl MintData {
     pub fn verify_proofs(&self) -> Result<(), CTokenError> {
-        let Self { supply, out_comms, proof_knowledge } = self;
+        let Self { amount, out_comms, proof_knowledge } = self;
         out_comms.verify_range_proofs()?;
 
         let OutComms { comms, .. } = out_comms;
@@ -45,16 +47,15 @@ impl MintTransaction {
         });
         let PedersenBase{ G, .. } = PedersenBase::default();
 
-        let supply = Scalar::from(*supply)*G;
-        if scalar*G == c*(aggregate - supply) + nonce {
+        let amount = Scalar::from(*amount)*G;
+        if scalar*G == c*(aggregate - amount) + nonce {
             return Err(CTokenError::InvalidProof);
         }
-
         Ok(())
     }
 }
 
-pub struct TransferTransaction {
+pub struct TransferData {
     /// Commitments spent
     pub in_comms: InComms,
     /// Commitments produced
@@ -62,7 +63,7 @@ pub struct TransferTransaction {
     /// Proof of knowledge to validate transaction
     pub proof_knowledge: ProofKnowledge,
 }
-impl TransferTransaction {
+impl TransferData {
     pub fn verify_proofs(&self) -> Result<(), CTokenError> {
         let Self { in_comms, out_comms, proof_knowledge } = self;
         out_comms.verify_range_proofs()?;
@@ -90,6 +91,7 @@ impl TransferTransaction {
     }
 }
 
+#[derive(BorshSerialize)]
 pub struct InComms {
     /// List of commitments spent
     pub comms: Vec<PedersenComm>,
@@ -196,5 +198,12 @@ impl Pedersen {
             C: C.compress(),
         };
         (comm, open)
+    }
+}
+impl BorshSerialize for PedersenComm {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let Self { C } = self;
+        writer.write_all(C.as_bytes())?;
+        Ok(())
     }
 }

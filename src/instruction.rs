@@ -9,15 +9,15 @@ use std::convert::TryInto;
 
 use crate::{
     error::CTokenError::InvalidInstruction,
+    proof::{MintData, TransferData},
 };
 
 pub enum CTokenInstruction {
 
     /// Initializes a new mint.
     ///
-    /// This is analogous to the `InitializeMint` command in the SPL token
-    /// program with decimals and freeze_authority removed for prototyping
-    /// purposes.
+    /// This is analogous to the `InitializeMint` instruction in the SPL token program with
+    /// decimals and freeze_authority removed for prototyping purposes.
     ///
     /// Accounts expected by this instruction:
     ///
@@ -29,8 +29,8 @@ pub enum CTokenInstruction {
     },
     /// Mints new tokens.
     ///
-    /// This is analogous to the combination of the `InitializeAccount` and
-    /// `MintTo` command in the SPL token program.
+    /// This is analogous to the combination of the `InitializeAccount` and `MintTo` instructions
+    /// in the SPL token program.
     ///
     /// Account expected by this instruction:
     ///
@@ -40,16 +40,15 @@ pub enum CTokenInstruction {
     ///   3. `[]` Rent sysvar
     ///
     Mint {
-        /// The amount of new tokens to mint.
-        amount: u64,
-        //proof: MintProof,
+        /// Data for the new tokens to mint.
+        mint_data: MintData,
     },
 
     /// Transfers tokens.
     ///
-    /// This is analogous to the `Transfer` command in the SPL token program.
-    /// There is no signature check required for any accounts. The validity of
-    /// the transaction is checked internally by the c-token program.
+    /// This is analogous to the `Transfer` instruction in the SPL token program. There is no
+    /// signature check required for any accounts. The validity of the transaction is checked
+    /// internally by the c-token program.
     ///
     /// Accounts expected by this instruction:
     ///
@@ -58,17 +57,17 @@ pub enum CTokenInstruction {
     ///   2. `[]` Rent sysvar
     ///
     Transfer {
-        // tx: TransferProof,
+        /// Data for the transfer
+        tx_data: TransferData,
     },
 
     /// Close an account by transferring all its ZOL to the destination in SOL.
     ///
-    /// This instruction is for prototyping purposes only and may be more
-    /// natural as part of a separate exchange program. For the prototype, 1 SOL
-    /// equals 1 ZOL in value.
+    /// This instruction is for prototyping purposes only and may be more natural as part of a
+    /// separate exchange program. For the prototype, 1 SOL equals 1 ZOL in value.
     ///
-    /// There is no signature check required for any accounts. The validity of
-    /// the transaction is checked internally by the c-token program.
+    /// There is no signature check required for any accounts. The validity of the transaction is
+    /// checked internally by the c-token program.
     ///
     /// Accounts expected by this instruction:
     ///
@@ -86,16 +85,6 @@ impl CTokenInstruction {
                 let (mint_authority, _) = Self::unpack_pubkey(rest)?;
                 Self::InitializeMint { mint_authority }
             },
-            1 => {
-                let (amount, rest) = rest.split_at(8);
-                let amount = amount
-                    .try_into()
-                    .ok()
-                    .map(u64::from_le_bytes)
-                    .ok_or(InvalidInstruction)?;
-                //let proof = MintProof::unpack(rest);
-                Self::Mint { amount, /*proof*/ }
-            }
             _ => return Err(InvalidInstruction.into()),
         })
     }
@@ -154,10 +143,9 @@ pub fn mint_to(
     mint_pubkey: &Pubkey,
     account_pubkey: &Pubkey,
     signer_pubkey: &Pubkey,
-    amount: u64,
-    //proof: MintProof,
+    mint_data: MintData,
 ) -> Result<Instruction, ProgramError> {
-    let data = CTokenInstruction::Mint { amount, /*proof*/ }.pack();
+    let data = CTokenInstruction::Mint { mint_data }.pack();
 
     let accounts = vec![
         AccountMeta::new(*mint_pubkey, false),
