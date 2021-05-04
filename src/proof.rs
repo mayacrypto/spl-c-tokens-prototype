@@ -20,9 +20,12 @@ use merlin::Transcript;
 use rand_core::OsRng;
 use crate::error::CTokenError;
 use std::io::{Write, Error};
+use std::io;
+use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 
 const RANGE_BIT_LENGTH: usize = 64;
 
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct MintData {
     /// Amount of newly minted tokens
     pub amount: u64,
@@ -36,14 +39,15 @@ impl MintData {
         let Self { amount, out_comms, proof_knowledge } = self;
         out_comms.verify_range_proofs()?;
 
-        let OutComms { comms, .. } = out_comms;
+        let OutComms { comms_proofs } = out_comms;
         let ProofKnowledge { nonce, scalar } = proof_knowledge;
+        
         let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes());
         // ignoring decompression error for now
         let nonce = nonce.decompress().unwrap();
         let mut aggregate = RistrettoPoint::identity();
-        comms.iter().for_each(| PedersenComm{ C } | {
-            aggregate = aggregate + C.decompress().unwrap();
+        comms_proofs.iter().for_each(| PedersenCommRange{ comm, .. } | {
+            aggregate = aggregate + comm.C.decompress().unwrap();
         });
         let PedersenBase{ G, .. } = PedersenBase::default();
 
@@ -55,6 +59,7 @@ impl MintData {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct TransferData {
     /// Commitments spent
     pub in_comms: InComms,
@@ -69,8 +74,9 @@ impl TransferData {
         out_comms.verify_range_proofs()?;
 
         let InComms { comms: in_comms } = in_comms;
-        let OutComms { comms: out_comms, ..  } = out_comms;
-        let ProofKnowledge { nonce, scalar  } = proof_knowledge;
+        let OutComms { comms_proofs } = out_comms;
+        let ProofKnowledge { nonce, scalar } = proof_knowledge;
+
         let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes());
         // ignoring decompression error for now
         let nonce = nonce.decompress().unwrap();
@@ -78,8 +84,8 @@ impl TransferData {
         in_comms.iter().for_each(| PedersenComm{ C } | {
             aggregate = aggregate - C.decompress().unwrap();
         });
-        out_comms.iter().for_each(| PedersenComm{ C } | {
-            aggregate = aggregate + C.decompress().unwrap();
+        comms_proofs.iter().for_each(| PedersenCommRange{ comm, .. } | {
+            aggregate = aggregate + comm.C.decompress().unwrap();
         });
         let PedersenBase{ G, .. } = PedersenBase::default();
 
@@ -91,23 +97,22 @@ impl TransferData {
     }
 }
 
-#[derive(BorshSerialize)]
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct InComms {
     /// List of commitments spent
     pub comms: Vec<PedersenComm>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct OutComms {
-    /// List of new commitments produced
-    pub comms: Vec<PedersenComm>,
-    /// List of range proofs
-    pub range_proofs: Vec<RangeProof>,
+    /// List of produced commitments with attached range proofs
+    pub comms_proofs: Vec<PedersenCommRange>,
 }
 impl OutComms {
     pub fn verify_range_proofs(&self) -> Result<(), ProofError> {
-        let Self { comms, range_proofs } = self;
-        for (comm, proof) in comms.iter().zip(range_proofs.iter()) {
-            proof.verify_single(
+        let Self { comms_proofs } = self;
+        for PedersenCommRange{ comm, range_proof } in comms_proofs {
+            range_proof.verify_single(
                 &BulletproofGens::new(RANGE_BIT_LENGTH, 1),
                 &PedersenGens::default(),
                 &mut Transcript::new(b""),
@@ -119,12 +124,34 @@ impl OutComms {
     }
 }
 
-
 pub struct ProofKnowledge {
     /// Nonce component
     pub nonce: CompressedRistretto,
     /// Scalar component
     pub scalar: Scalar,
+}
+impl BorshSerialize for ProofKnowledge {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let Self { nonce, scalar } = self;
+        let nonce_bytes = nonce.as_bytes();
+        let scalar_bytes = scalar.as_bytes();
+
+        writer.write(nonce_bytes)?;
+        writer.write(scalar_bytes)?;
+        Ok(())
+    }
+}
+impl BorshDeserialize for ProofKnowledge {
+    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+        let buf = array_ref![buf, 0, 64];
+        let ( nonce, scalar ) = array_refs![buf, 32, 32];
+        let scalar = Scalar::from_canonical_bytes(*scalar)
+            .ok_or(std::io::ErrorKind::InvalidData)?;
+        Ok( ProofKnowledge {
+            nonce: CompressedRistretto(*nonce),
+            scalar,
+        })
+    }
 }
 
 // TODO: Consider using a commitment trait to unify syntax for ElGamal and Pedersen
@@ -205,5 +232,43 @@ impl BorshSerialize for PedersenComm {
         let Self { C } = self;
         writer.write_all(C.as_bytes())?;
         Ok(())
+    }
+}
+impl BorshDeserialize for PedersenComm {
+    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+        let C = array_ref![buf, 0, 32];
+        Ok( PedersenComm {
+            C: CompressedRistretto(*C),
+        })
+    }
+}
+
+pub struct PedersenCommRange {
+    /// Pedersen commitment
+    pub comm: PedersenComm,
+    pub range_proof: RangeProof,
+}
+impl BorshSerialize for PedersenCommRange {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let Self { comm, range_proof } = self;
+        let comm_bytes = comm.try_to_vec()?;
+        let range_proof_bytes = range_proof.to_bytes();
+
+        writer.write(&comm_bytes)?;
+        writer.write(&range_proof_bytes)?;
+
+        Ok(())
+    }
+}
+impl BorshDeserialize for PedersenCommRange {
+    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+        let buf = array_ref![buf, 0, 736];
+        let ( comm, range_proof ) = array_refs![buf, 32, 704];
+        let range_proof = RangeProof::from_bytes(range_proof)
+            .or(Err(std::io::ErrorKind::InvalidData))?;
+        Ok( PedersenCommRange {
+            comm: PedersenComm{ C: CompressedRistretto(*comm) },
+            range_proof,
+        })
     }
 }
