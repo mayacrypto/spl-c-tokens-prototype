@@ -62,7 +62,7 @@ pub enum CTokenInstruction {
     ///
     Transfer {
         /// Data for the transfer
-        tx_data: TransferData,
+        transfer_data: TransferData,
     },
 
     /// Close an account by transferring all its ZOL to the destination in SOL.
@@ -89,6 +89,14 @@ impl CTokenInstruction {
                 let (mint_authority, _) = Self::unpack_pubkey(rest)?;
                 Self::InitializeMint { mint_authority }
             },
+            1 => {
+                let mint_data = MintData::try_from_slice(rest)?;
+                Self::Mint { mint_data }
+            },
+            2 => {
+                let transfer_data = TransferData::try_from_slice(rest)?;
+                Self::Transfer { transfer_data }
+            },
             _ => return Err(InvalidInstruction.into()),
         })
     }
@@ -101,6 +109,18 @@ impl CTokenInstruction {
             } => {
                 buf.push(0);
                 buf.extend_from_slice(mint_authority.as_ref());
+            },
+            &Self::Mint {
+                ref mint_data,
+            } => {
+                buf.push(1);
+                buf.extend_from_slice(mint_data.try_to_vec().unwrap().as_ref());
+            },
+            &Self::Transfer {
+                ref transfer_data,
+            } => {
+                buf.push(2);
+                buf.extend_from_slice(transfer_data.try_to_vec().unwrap().as_ref());
             },
             _ => {}
         };
@@ -141,8 +161,8 @@ pub fn initialize_mint(
     })
 }
 
-/// Creates a `MintTo` instruction.
-pub fn mint_to(
+/// Creates a `Mint` instruction.
+pub fn mint(
     c_token_program_id: &Pubkey,
     mint_pubkey: &Pubkey,
     account_pubkey: &Pubkey,
@@ -163,36 +183,23 @@ pub fn mint_to(
     })
 }
 
-/// Type wrapper of Pubkey: to implement the Borsh Serialize/Deserialize traits
-/// using the New Type Pattern.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct BorshPubkey(Pubkey);
-impl Deref for BorshPubkey {
-    type Target = Pubkey;
-    
-    fn deref(&self) -> &Pubkey {
-        let Self(pubkey) = self;
-        pubkey
-    }
-}
-impl BorshSerialize for BorshPubkey {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        Ok(())
-    }
-}
-impl BorshDeserialize for BorshPubkey {
-    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        if buf.len() == 32 {
-            Ok(BorshPubkey(
-                    Pubkey::new(buf)
-            ))
-        } else {
-            Err(io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Bytes does not match Pubkey size"
-            ))
-        }
-    }
-}
+/// Creates a `Transfer` instruction.
+pub fn transfer(
+    c_token_program_id: &Pubkey,
+    source_pubkey: &Pubkey,
+    destination_pubkey: &Pubkey,
+    transfer_data: TransferData,
+) -> Result<Instruction, ProgramError> {
+    let data = CTokenInstruction::Transfer { transfer_data }.pack();
 
+    let accounts = vec![
+        AccountMeta::new(*source_pubkey, false),
+        AccountMeta::new(*destination_pubkey, false),
+    ];
+    Ok(Instruction {
+        program_id: *c_token_program_id,
+        accounts,
+        data,
+    })
+}
 

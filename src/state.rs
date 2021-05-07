@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use borsh::{BorshSerialize, BorshDeserialize};
+use std::io::{Write, Error};
+use std::io;
+use std::ops::Deref;
 
 use solana_program::{
     program_pack::{IsInitialized, Pack, Sealed},
@@ -10,7 +13,6 @@ use solana_program::{
 
 use crate::{
     proof::PedersenComm,
-    instruction::BorshPubkey,
 };
 
 /// Mint data.
@@ -82,5 +84,37 @@ impl Pack for Account {
             .unwrap()
             .as_ref()
         );
+    }
+}
+
+/// Type wrapper of Pubkey: to implement the Borsh Serialize/Deserialize traits
+/// using the New Type Pattern.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BorshPubkey(Pubkey);
+impl Deref for BorshPubkey {
+    type Target = Pubkey;
+    
+    fn deref(&self) -> &Pubkey {
+        let Self(pubkey) = self;
+        pubkey
+    }
+}
+impl BorshSerialize for BorshPubkey {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        Ok(())
+    }
+}
+impl BorshDeserialize for BorshPubkey {
+    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+        if buf.len() == 32 {
+            Ok(BorshPubkey(
+                    Pubkey::new(buf)
+            ))
+        } else {
+            Err(io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Bytes does not match Pubkey size"
+            ))
+        }
     }
 }
