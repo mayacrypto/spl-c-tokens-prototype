@@ -22,6 +22,7 @@ use crate::error::CTokenError;
 use std::io::{Write, Error};
 use std::io;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
+use std::ops::Add;
 
 const RANGE_BIT_LENGTH: usize = 64;
 
@@ -243,6 +244,36 @@ impl BorshDeserialize for PedersenComm {
         })
     }
 }
+impl Add for PedersenComm {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        let Self { C: C_self } = self;
+        let Self { C: C_other } = other;
+
+        let C_out = C_self.decompress().unwrap() + C_other.decompress().unwrap();
+        Self { C: C_out.compress() }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Add for Point {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
+
+
 
 pub struct PedersenCommRange {
     /// Pedersen commitment

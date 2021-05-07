@@ -91,6 +91,11 @@ impl Pack for Account {
 /// using the New Type Pattern.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BorshPubkey(Pubkey);
+impl BorshPubkey {
+    pub fn new(pubkey: Pubkey) -> Self {
+        Self(pubkey)
+    }
+}
 impl Deref for BorshPubkey {
     type Target = Pubkey;
     

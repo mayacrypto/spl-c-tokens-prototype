@@ -21,6 +21,9 @@ pub enum CTokenError {
     /// Cryptographic proof is invalid
     #[error("Invalid proof")]
     InvalidProof,
+    /// Commitments in instructions and source account does not match.
+    #[error("Commitment mismatch")]
+    CommitmentMismatch,
 }
 
 impl From<CTokenError> for ProgramError {
