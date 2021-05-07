@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
+use borsh::{BorshSerialize, BorshDeserialize};
 
 use solana_program::{
     program_pack::{IsInitialized, Pack, Sealed},
@@ -7,14 +8,17 @@ use solana_program::{
     program_error::ProgramError,
 };
 
-use crate::proof::PedersenComm;
+use crate::{
+    proof::PedersenComm,
+    instruction::BorshPubkey,
+};
 
 /// Mint data.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Mint {
     /// Mint authority.
-    pub mint_authority: Pubkey, // 32 bytes
+    pub mint_authority: BorshPubkey, // 32 bytes
     /// Total supply of tokens.
     pub supply: u64, // 8 bytes
     /// Is `true` if this structure has been initialized
@@ -29,53 +33,32 @@ impl IsInitialized for Mint {
 impl Pack for Mint {
     const LEN: usize = 41;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, Mint::LEN];
-        let (
-            mint_authority, 
-            supply, 
-            is_initialized
-        ) = array_refs![src, 32, 8, 1];
-
-        let is_initialized = match is_initialized {
-            [0] => false,
-            [1] => true,
-            _ => return Err(ProgramError::InvalidAccountData),
-        };
-
-        Ok(Mint {
-            mint_authority: Pubkey::new_from_array(*mint_authority),
-            supply: u64::from_le_bytes(*supply),
-            is_initialized,
-        })
+        if let Ok(mint) = Mint::try_from_slice(src) {
+            Ok(mint)
+        } else {
+            Err(ProgramError::InvalidAccountData)
+        }
     }
-
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, Mint::LEN];
-        let (
-            mint_authority_dst,
-            supply_dst,
-            is_initialized_dst,
-        ) = mut_array_refs![dst, 32, 8, 1];
-        let &Mint {
-            ref mint_authority,
-            supply,
-            is_initialized,
-        } = self;
-        mint_authority_dst.copy_from_slice(mint_authority.as_ref());
-        *supply_dst = supply.to_le_bytes();
-        is_initialized_dst[0] = is_initialized as u8;
+        dst.copy_from_slice(
+            self
+            .try_to_vec()
+            .unwrap()
+            .as_ref()
+        );
     }
 }
 
 /// Account data.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Account {
     /// The mint associated with this account
-    pub mint: Pubkey,
+    pub mint: BorshPubkey, // 32 bytes
     /// Is `true` if this account has been initialized
-    pub is_initialized: bool,
-    // pub comm: PedersenComm,
+    pub is_initialized: bool, // 1 byte
+    /// The commitment associated with this account
+    pub comm: PedersenComm, // 32 bytes
 }
 impl Sealed for Account {}
 impl IsInitialized for Account {
@@ -84,34 +67,20 @@ impl IsInitialized for Account {
     }
 }
 impl Pack for Account {
-    const LEN: usize = 33;
+    const LEN: usize = 65;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, Account::LEN];
-        let (mint, is_initialized) = array_refs![src, 32, 1];
-        let is_initialized = match is_initialized {
-            [0] => false,
-            [1] => true,
-            _ => return Err(ProgramError::InvalidAccountData),
-        };
-        Ok(Account {
-            mint: Pubkey::new_from_array(*mint),
-            is_initialized,
-        })
+        if let Ok(account) = Account::try_from_slice(src) {
+            Ok(account)
+        } else {
+            Err(ProgramError::InvalidAccountData)
+        }
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let dst = array_mut_ref![dst, 0, Account::LEN];
-        let (
-            mint_dst,
-            is_initialized_dst,
-        ) = mut_array_refs![dst, 32, 1];
-        let &Account {
-            ref mint,
-            is_initialized,
-        } = self;
-        mint_dst.copy_from_slice(mint.as_ref());
-        is_initialized_dst[0] = is_initialized as u8;
+        dst.copy_from_slice(
+            self
+            .try_to_vec()
+            .unwrap()
+            .as_ref()
+        );
     }
 }
-
-
-

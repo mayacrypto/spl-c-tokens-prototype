@@ -211,6 +211,7 @@ impl Default for PedersenBase {
         }
     }
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PedersenComm {
     /// Commitment
     pub C: CompressedRistretto,
