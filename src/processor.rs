@@ -5,6 +5,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
     pubkey::Pubkey,
+    msg,
     sysvar::{rent::Rent, Sysvar},
 };
 
@@ -49,7 +50,6 @@ impl Processor {
     pub fn process_mint(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
-        amount: u64,
         mint_data: MintData,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
@@ -71,7 +71,7 @@ impl Processor {
 
         mint.supply = mint
             .supply
-            .checked_add(amount)
+            .checked_add(mint_data.amount)
             .ok_or(CTokenError::Overflow)?;
 
         // Account::pack(dest_account, &mut dest_account_info.data.borrow_mut())?;
@@ -80,7 +80,7 @@ impl Processor {
         Ok(())
     }
 
-    pub fn transfer(
+    pub fn process_transfer(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         transfer_data: TransferData,
@@ -106,6 +106,28 @@ impl Processor {
         // Account::pack(dest_account, &mut dest_account_info.data.borrow_mut());
 
         Ok(())
+    }
+
+    pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
+        let instruction = CTokenInstruction::unpack(input)?;
+
+        match instruction {
+            CTokenInstruction::InitializeMint { mint_authority } => {
+                msg!("Instruction: InitializeMint");
+                Self::process_initialize_mint(accounts, mint_authority)
+            }
+            CTokenInstruction::Mint { mint_data } => {
+                msg!("Instruction: Mint");
+                Self::process_mint(program_id, accounts, mint_data)
+            }
+            CTokenInstruction::Transfer { transfer_data } => {
+                msg!("Instruction: Transfer");
+                Self::process_transfer(program_id, accounts, transfer_data)
+            }
+            _ => {
+                Ok(())
+            }
+        }
     }
 }
 
