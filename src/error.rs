@@ -24,6 +24,9 @@ pub enum CTokenError {
     /// Commitments in instructions and source account does not match.
     #[error("Commitment mismatch")]
     CommitmentMismatch,
+    /// Commitment opening is invalid
+    #[error("Opening invalid")]
+    OpeningInvalid,
 }
 
 impl From<CTokenError> for ProgramError {

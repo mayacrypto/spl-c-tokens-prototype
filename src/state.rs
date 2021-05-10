@@ -106,6 +106,9 @@ impl Deref for BorshPubkey {
 }
 impl BorshSerialize for BorshPubkey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let Self(pubkey) = self;
+        let pubkey_bytes = pubkey.to_bytes();
+        writer.write(&pubkey_bytes)?;
         Ok(())
     }
 }

@@ -13,7 +13,7 @@ use std::convert::TryInto;
 
 use crate::{
     error::CTokenError::InvalidInstruction,
-    proof::{MintData, TransferData},
+    proof::{MintData, TransferData, CloseAccountData},
 };
 
 pub enum CTokenInstruction {
@@ -78,7 +78,10 @@ pub enum CTokenInstruction {
     ///   0. `[writable]` The source account.
     ///   1. `[writable]` The destination account.
     ///
-    CloseAccount,
+    CloseAccount {
+        /// Data for close account
+        close_account_data: CloseAccountData,
+    },
 }
 
 impl CTokenInstruction {
@@ -96,6 +99,10 @@ impl CTokenInstruction {
             2 => {
                 let transfer_data = TransferData::try_from_slice(rest)?;
                 Self::Transfer { transfer_data }
+            },
+            3 => {
+                let close_account_data = CloseAccountData::try_from_slice(rest)?;
+                Self::CloseAccount { close_account_data }
             },
             _ => return Err(InvalidInstruction.into()),
         })
@@ -121,6 +128,12 @@ impl CTokenInstruction {
             } => {
                 buf.push(2);
                 buf.extend_from_slice(transfer_data.try_to_vec().unwrap().as_ref());
+            },
+            &Self::CloseAccount {
+                ref close_account_data,
+            } => {
+                buf.push(3);
+                buf.extend_from_slice(close_account_data.try_to_vec().unwrap().as_ref());
             },
             _ => {}
         };
@@ -191,6 +204,26 @@ pub fn transfer(
     transfer_data: TransferData,
 ) -> Result<Instruction, ProgramError> {
     let data = CTokenInstruction::Transfer { transfer_data }.pack();
+
+    let accounts = vec![
+        AccountMeta::new(*source_pubkey, false),
+        AccountMeta::new(*destination_pubkey, false),
+    ];
+    Ok(Instruction {
+        program_id: *c_token_program_id,
+        accounts,
+        data,
+    })
+}
+
+/// Creates a `CloseAccount` instruction.
+pub fn close_account(
+    c_token_program_id: &Pubkey,
+    source_pubkey: &Pubkey,
+    destination_pubkey: &Pubkey,
+    close_account_data: CloseAccountData,
+) -> Result<Instruction, ProgramError> {
+    let data = CTokenInstruction::CloseAccount { close_account_data }.pack();
 
     let accounts = vec![
         AccountMeta::new(*source_pubkey, false),

@@ -13,7 +13,7 @@ use crate::{
     instruction::CTokenInstruction,
     state::{Mint, Account, BorshPubkey},
     error::CTokenError,
-    proof::{MintData, TransferData},
+    proof::{MintData, TransferData, CloseAccountData},
 };
 
 
@@ -108,6 +108,16 @@ impl Processor {
         Ok(())
     }
 
+    pub fn process_close_account(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        close_account_data: CloseAccountData,
+    ) -> ProgramResult {
+
+
+        Ok(())
+    }
+
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
         let instruction = CTokenInstruction::unpack(input)?;
 
@@ -123,6 +133,10 @@ impl Processor {
             CTokenInstruction::Transfer { transfer_data } => {
                 msg!("Instruction: Transfer");
                 Self::process_transfer(program_id, accounts, transfer_data)
+            }
+            CTokenInstruction::CloseAccount { close_account_data } => {
+                msg!("Instruction: CloseAccount");
+                Self::process_close_account(program_id, accounts, close_account_data)
             }
             _ => {
                 Ok(())

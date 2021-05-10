@@ -23,6 +23,7 @@ use std::io::{Write, Error};
 use std::io;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use std::ops::Add;
+use std::ops::Deref;
 
 const RANGE_BIT_LENGTH: usize = 64;
 
@@ -95,6 +96,29 @@ impl TransferData {
         }
 
         Ok(())
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct CloseAccountData {
+    /// Claimed number of tokens
+    pub amount: u64,
+    /// Commitment opening
+    pub open: BorshScalar,
+}
+impl CloseAccountData {
+    pub fn verify_opening(&self, comm: PedersenComm) -> Result<(), CTokenError> {
+        let Self { amount, open } = self;
+        let (expected_comm, _) = Pedersen::commit(
+            PedersenBase::default(), 
+            Scalar::from(*amount),
+            Some(**open),
+        );
+        if expected_comm == comm {
+            Ok(())
+        } else {
+            Err(CTokenError::OpeningInvalid)
+        }
     }
 }
 
@@ -218,10 +242,13 @@ pub struct PedersenComm {
     pub C: CompressedRistretto,
 }
 impl Pedersen {
-    pub fn commit(base: PedersenBase, val: Scalar) -> (PedersenComm, Scalar) {
+    pub fn commit(base: PedersenBase, val: Scalar, open: Option<Scalar>) -> (PedersenComm, Scalar) {
         let PedersenBase{ G, H } = base;
-        let mut rng = OsRng;
-        let open = Scalar::random(&mut rng);
+
+        let open = open.or_else(|| {
+            let mut rng = OsRng;
+            Some(Scalar::random(&mut rng))
+        }).unwrap();
         let C = open * G + val * H;
         let comm = PedersenComm {
             C: C.compress(),
@@ -304,3 +331,45 @@ impl BorshDeserialize for PedersenCommRange {
         })
     }
 }
+
+/// Type wrapper of Scalar: to implement the Borsh Serialize/Deserialize traits
+/// using the New Type Pattern.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BorshScalar(Scalar);
+impl BorshScalar {
+    pub fn new(scalar: Scalar) -> Self {
+        Self(scalar)
+    }
+}
+impl Deref for BorshScalar {
+    type Target = Scalar;
+
+    fn deref(&self) -> &Scalar {
+        let Self(scalar) = self;
+        scalar
+    }
+}
+impl BorshSerialize for BorshScalar {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let Self(scalar) = self;
+        let scalar_bytes = scalar.to_bytes();
+        writer.write(&scalar_bytes)?;
+        Ok(())
+    }
+}
+impl BorshDeserialize for BorshScalar {
+    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+        let buf = array_ref![buf, 0, 32];
+        
+        let scalar = Scalar::from_canonical_bytes(*buf);
+        if scalar.is_none() {
+            return Err(io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Scalar deserialize error"
+            ))
+        };
+        Ok(BorshScalar(scalar.unwrap()))
+    }
+}
+
+
