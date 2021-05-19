@@ -4,16 +4,12 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar,
 };
-use std::ops::Deref;
 use borsh::{BorshSerialize, BorshDeserialize};
-use std::io::{Write, Error};
-use std::io;
 use std::mem::size_of;
-use std::convert::TryInto;
 
 use crate::{
     error::CTokenError::InvalidInstruction,
-    proof::{MintData, TransferData, CloseAccountData},
+    txdata::{MintData, TransferData, CloseAccountData},
 };
 
 pub enum CTokenInstruction {

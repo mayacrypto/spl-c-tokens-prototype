@@ -4,222 +4,33 @@ use curve25519_dalek::{
     ristretto::RistrettoPoint,
     ristretto::CompressedRistretto,
     scalar::Scalar,
-    traits::Identity,
     constants::RISTRETTO_BASEPOINT_POINT,
     constants::RISTRETTO_BASEPOINT_COMPRESSED,
 };
 use sha3::Sha3_512;
 use borsh::{BorshSerialize, BorshDeserialize};
-use bulletproofs::{
-    PedersenGens,
-    BulletproofGens,
-    RangeProof,
-    ProofError,
-};
-use merlin::Transcript;
-use rand_core::OsRng;
-use crate::error::CTokenError;
+use bulletproofs::RangeProof;
 use std::io::{Write, Error};
 use std::io;
-use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
-use std::ops::Add;
+use arrayref::array_ref;
 use std::ops::Deref;
 
-const RANGE_BIT_LENGTH: usize = 64;
 
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct MintData {
-    /// Amount of newly minted tokens
-    pub amount: u64,
-    /// Commitments produced
-    pub out_comms: OutComms,
-    /// Proof of knowledge to validate transaction
-    pub proof_knowledge: ProofKnowledge,
-}
-impl MintData {
-    pub fn verify_proofs(&self) -> Result<(), CTokenError> {
-        let Self { amount, out_comms, proof_knowledge } = self;
-        out_comms.verify_range_proofs()?;
-
-        let OutComms { comms_proofs } = out_comms;
-        let ProofKnowledge { nonce, scalar } = proof_knowledge;
-        
-        let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes());
-        // ignoring decompression error for now
-        let nonce = nonce.decompress().unwrap();
-        let mut aggregate = RistrettoPoint::identity();
-        comms_proofs.iter().for_each(| PedersenCommRange{ comm, .. } | {
-            aggregate = aggregate + comm.C.decompress().unwrap();
-        });
-        let PedersenBase{ G, .. } = PedersenBase::default();
-
-        let amount = Scalar::from(*amount)*G;
-        if scalar*G == c*(aggregate - amount) + nonce {
-            return Err(CTokenError::InvalidProof);
-        }
-        Ok(())
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct TransferData {
-    /// Commitments spent
-    pub in_comms: InComms,
-    /// Commitments produced
-    pub out_comms: OutComms,
-    /// Proof of knowledge to validate transaction
-    pub proof_knowledge: ProofKnowledge,
-}
-impl TransferData {
-    pub fn verify_proofs(&self) -> Result<(), CTokenError> {
-        let Self { in_comms, out_comms, proof_knowledge } = self;
-        out_comms.verify_range_proofs()?;
-
-        let InComms { comms: in_comms } = in_comms;
-        let OutComms { comms_proofs } = out_comms;
-        let ProofKnowledge { nonce, scalar } = proof_knowledge;
-
-        let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes());
-        // ignoring decompression error for now
-        let nonce = nonce.decompress().unwrap();
-        let mut aggregate = RistrettoPoint::identity();
-        in_comms.iter().for_each(| PedersenComm{ C } | {
-            aggregate = aggregate - C.decompress().unwrap();
-        });
-        comms_proofs.iter().for_each(| PedersenCommRange{ comm, .. } | {
-            aggregate = aggregate + comm.C.decompress().unwrap();
-        });
-        let PedersenBase{ G, .. } = PedersenBase::default();
-
-        if scalar*G == c*aggregate + nonce {
-            return Err(CTokenError::InvalidProof);
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct CloseAccountData {
-    /// Claimed number of tokens
-    pub amount: u64,
-    /// Commitment opening
-    pub open: BorshScalar,
-}
-impl CloseAccountData {
-    pub fn verify_opening(&self, comm: PedersenComm) -> Result<(), CTokenError> {
-        let Self { amount, open } = self;
-        let (expected_comm, _) = Pedersen::commit(
-            PedersenBase::default(), 
-            Scalar::from(*amount),
-            Some(**open),
-        );
-        if expected_comm == comm {
-            Ok(())
-        } else {
-            Err(CTokenError::OpeningInvalid)
-        }
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct InComms {
-    /// List of commitments spent
-    pub comms: Vec<PedersenComm>,
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct OutComms {
-    /// List of produced commitments with attached range proofs
-    pub comms_proofs: Vec<PedersenCommRange>,
-}
-impl OutComms {
-    pub fn verify_range_proofs(&self) -> Result<(), ProofError> {
-        let Self { comms_proofs } = self;
-        for PedersenCommRange{ comm, range_proof } in comms_proofs {
-            range_proof.verify_single(
-                &BulletproofGens::new(RANGE_BIT_LENGTH, 1),
-                &PedersenGens::default(),
-                &mut Transcript::new(b""),
-                &comm.C,
-                1,
-            )?;
-        }
-        Ok(())
-    }
-}
-
+#[derive(BorshDeserialize, BorshSerialize)]
 pub struct ProofKnowledge {
     /// Nonce component
-    pub nonce: CompressedRistretto,
+    pub nonce: BorshRistretto,
     /// Scalar component
-    pub scalar: Scalar,
-}
-impl BorshSerialize for ProofKnowledge {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        let Self { nonce, scalar } = self;
-        let nonce_bytes = nonce.as_bytes();
-        let scalar_bytes = scalar.as_bytes();
-
-        writer.write(nonce_bytes)?;
-        writer.write(scalar_bytes)?;
-        Ok(())
-    }
-}
-impl BorshDeserialize for ProofKnowledge {
-    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        let buf = array_ref![buf, 0, 64];
-        let ( nonce, scalar ) = array_refs![buf, 32, 32];
-        let scalar = Scalar::from_canonical_bytes(*scalar)
-            .ok_or(std::io::ErrorKind::InvalidData)?;
-        Ok( ProofKnowledge {
-            nonce: CompressedRistretto(*nonce),
-            scalar,
-        })
-    }
+    pub scalar: BorshScalar,
 }
 
-// TODO: Consider using a commitment trait to unify syntax for ElGamal and Pedersen
-pub struct ElGamal;
-pub struct ElGamalBase {
-    /// Base for the committed value
-    pub G: RistrettoPoint,
-    /// Base for the blinding factor
-    pub H: RistrettoPoint,
-}
-impl Default for ElGamalBase {
-    fn default() -> Self {
-        ElGamalBase {
-            G: RISTRETTO_BASEPOINT_POINT,
-            H: RistrettoPoint::hash_from_bytes::<Sha3_512>(
-                RISTRETTO_BASEPOINT_COMPRESSED.as_bytes(),
-            ),
-        }
-    }
-}
-pub struct ElGamalComm {
-    /// Randomness component
-    pub R: CompressedRistretto,
-    /// Payload component
-    pub C: CompressedRistretto,
-}
-impl ElGamal {
-    pub fn commit(base: ElGamalBase, val: Scalar) -> (ElGamalComm, Scalar) {
-        let ElGamalBase{ G, H } = base;
-        let mut rng = OsRng;
-        let open = Scalar::random(&mut rng);
 
-        let R = open*G;
-        let C = R + val*H;
-        let comm = ElGamalComm{ 
-            R: R.compress(), 
-            C: C.compress() 
-        };
-        (comm, open)
-    }
-}
-
+/// Struct that holds algorithms related to Pedersen commitments as static functions
+/// 
+/// This struct is purely for code organization and can be removed as the crypto API evolves
 pub struct Pedersen;
+
+/// Base points that are used to generate Pedersen commitments.
 pub struct PedersenBase {
     /// Base for the committed value
     pub G: RistrettoPoint,
@@ -236,99 +47,35 @@ impl Default for PedersenBase {
         }
     }
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+
+/// The actual Pedersen commitment
+#[derive(BorshDeserialize, BorshSerialize, Clone, Copy, Debug, Default, PartialEq)]
 pub struct PedersenComm {
-    /// Commitment
-    pub C: CompressedRistretto,
+    /// Ristretto point representing the commitment
+    comm: BorshRistretto,
+}
+impl PedersenComm {
+    pub fn getComm(&self) -> BorshRistretto {
+        self.comm
+    }
 }
 impl Pedersen {
-    pub fn commit(base: PedersenBase, val: Scalar, open: Option<Scalar>) -> (PedersenComm, Scalar) {
+
+    // Ideally, there should be a PedersenComm constructor that samples a random opening and
+    // produces a Pedersen commitment. Putting the constructor in the tests for now since it is a
+    // randomized function. Ultimately, we should package the crypto component into a separate
+    // library that allows for randomized functions.
+
+    /// Given a commitment along with the corresponding base points, opening, and the committed
+    /// value, verifies the validity of the commitment.
+    pub fn verify_commitment (
+        comm: &PedersenComm, // commitment to be verified
+        base: &PedersenBase, // base points for the commitment
+        open: &Scalar,       // opening for the commitment
+        val: &Scalar,        // committed value
+    ) -> bool {
         let PedersenBase{ G, H } = base;
-
-        let open = open.or_else(|| {
-            let mut rng = OsRng;
-            Some(Scalar::random(&mut rng))
-        }).unwrap();
-        let C = open * G + val * H;
-        let comm = PedersenComm {
-            C: C.compress(),
-        };
-        (comm, open)
-    }
-}
-impl BorshSerialize for PedersenComm {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        let Self { C } = self;
-        writer.write_all(C.as_bytes())?;
-        Ok(())
-    }
-}
-impl BorshDeserialize for PedersenComm {
-    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        let C = array_ref![buf, 0, 32];
-        Ok( PedersenComm {
-            C: CompressedRistretto(*C),
-        })
-    }
-}
-impl Add for PedersenComm {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        let Self { C: C_self } = self;
-        let Self { C: C_other } = other;
-
-        let C_out = C_self.decompress().unwrap() + C_other.decompress().unwrap();
-        Self { C: C_out.compress() }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct Point {
-    x: i32,
-    y: i32,
-}
-
-impl Add for Point {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        Self {
-            x: self.x + other.x,
-            y: self.y + other.y,
-        }
-    }
-}
-
-
-
-pub struct PedersenCommRange {
-    /// Pedersen commitment
-    pub comm: PedersenComm,
-    pub range_proof: RangeProof,
-}
-impl BorshSerialize for PedersenCommRange {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        let Self { comm, range_proof } = self;
-        let comm_bytes = comm.try_to_vec()?;
-        let range_proof_bytes = range_proof.to_bytes();
-
-        writer.write(&comm_bytes)?;
-        writer.write(&range_proof_bytes)?;
-
-        Ok(())
-    }
-}
-impl BorshDeserialize for PedersenCommRange {
-    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        let buf = array_ref![buf, 0, 736];
-        let ( comm, range_proof ) = array_refs![buf, 32, 704];
-        let range_proof = RangeProof::from_bytes(range_proof)
-            .or(Err(std::io::ErrorKind::InvalidData))?;
-        Ok( PedersenCommRange {
-            comm: PedersenComm{ C: CompressedRistretto(*comm) },
-            range_proof,
-        })
+        *comm.getComm() == (open * G + val * H).compress()
     }
 }
 
@@ -372,4 +119,146 @@ impl BorshDeserialize for BorshScalar {
     }
 }
 
+/// Type wrapper for CompressedRistretto: to implement the Borsh
+/// Serialize/Deserialize traits using the New Type Pattern.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BorshRistretto(CompressedRistretto);
+impl BorshRistretto {
+    pub fn new(ristretto: CompressedRistretto) -> Self {
+        Self(ristretto)
+    }
+}
+impl Deref for BorshRistretto {
+    type Target = CompressedRistretto;
 
+    fn deref(&self) -> &CompressedRistretto {
+        let Self(ristretto) = self;
+        ristretto
+    }
+}
+impl BorshSerialize for BorshRistretto {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let Self(ristretto) = self;
+        let ristretto_bytes = ristretto.to_bytes();
+        writer.write(&ristretto_bytes)?;
+        Ok(())
+    }
+}
+impl BorshDeserialize for BorshRistretto {
+    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+        let buf = array_ref![buf, 0, 32];
+        if buf.len() == 32 {
+            Ok(BorshRistretto(
+                    CompressedRistretto(*buf)
+            ))
+        } else {
+            Err(io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Deserialize error"
+            ))
+        }
+    }
+}
+
+/// Type wrapper for RangeProof: to implement the Borsh Serialize/Deserialize traits using
+/// the New Type Pattern.
+#[derive(Clone, Debug)]
+pub struct BorshRangeProof(RangeProof);
+impl BorshRangeProof {
+    pub fn new(range_proof: RangeProof) -> Self {
+        Self(range_proof)
+    }
+}
+impl Deref for BorshRangeProof {
+    type Target = RangeProof;
+
+    fn deref(&self) -> &RangeProof {
+        let Self(range_proof) = self;
+        range_proof
+    }
+}
+impl BorshSerialize for BorshRangeProof {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let Self(range_proof) = self;
+        let range_proof_bytes = range_proof.to_bytes();
+        writer.write(&range_proof_bytes)?;
+        Ok(())
+    }
+}
+impl BorshDeserialize for BorshRangeProof {
+    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+        let range_proof = RangeProof::from_bytes(buf)
+            .or(Err(std::io::ErrorKind::InvalidData))?;
+        Ok( BorshRangeProof(range_proof) )
+    }
+}
+
+// We need ElGamal for anonymity, but not necessarily for confidentiality.
+//
+// pub struct ElGamal;
+// pub struct ElGamalBase {
+//     /// Base for the committed value
+//     pub G: RistrettoPoint,
+//     /// Base for the blinding factor
+//     pub H: RistrettoPoint,
+// }
+// impl Default for ElGamalBase {
+//     fn default() -> Self {
+//         ElGamalBase {
+//             G: RISTRETTO_BASEPOINT_POINT,
+//             H: RistrettoPoint::hash_from_bytes::<Sha3_512>(
+//                 RISTRETTO_BASEPOINT_COMPRESSED.as_bytes(),
+//             ),
+//         }
+//     }
+// }
+// pub struct ElGamalComm {
+//     /// Randomness component
+//     pub R: CompressedRistretto,
+//     /// Payload component
+//     pub C: CompressedRistretto,
+// }
+// impl ElGamal {
+//     pub fn commit(base: ElGamalBase, val: Scalar) -> (ElGamalComm, Scalar) {
+//         let ElGamalBase{ G, H } = base;
+//         let mut rng = OsRng;
+//         let open = Scalar::random(&mut rng);
+// 
+//         let R = open*G;
+//         let C = R + val*H;
+//         let comm = ElGamalComm{ 
+//             R: R.compress(), 
+//             C: C.compress() 
+//         };
+//         (comm, open)
+//     }
+// }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand_core::OsRng;
+
+    fn commit_pedersen(base: PedersenBase, val: Scalar, open: Option<Scalar>) 
+        -> (PedersenComm, Scalar) {
+        let PedersenBase{ G, H } = base;
+
+        // If a commitment opening is not specified, sample a random opening
+        let open = open.or_else(|| {
+            let mut rng = OsRng;
+            Some(Scalar::random(&mut rng))
+        }).unwrap();
+
+        // Generate the commitment using the opening
+        let C = open * G + val * H;
+
+        // Wrap the commitment component into PedersenComm
+        let comm = PedersenComm { comm: C.compress() };
+
+        // Return the commitment and the corresponding opening
+        (comm, open)
+    }
+
+    // TODO: Write tests here
+
+}

@@ -1,5 +1,3 @@
-use std::borrow::BorrowMut;
-
 use solana_program::{
     program_pack::Pack,
     account_info::{next_account_info, AccountInfo},
@@ -13,7 +11,7 @@ use crate::{
     instruction::CTokenInstruction,
     state::{Mint, Account, BorshPubkey},
     error::CTokenError,
-    proof::{MintData, TransferData, CloseAccountData},
+    txdata::{CryptoVerRequired, MintData, TransferData, CloseAccountData},
 };
 
 
@@ -61,13 +59,13 @@ impl Processor {
         if dest_account.is_initialized || *mint_info.key != *dest_account.mint {
             return Err(CTokenError::AlreadyInUse.into());
         }
-        mint_data.verify_proofs()?;
+        mint_data.verify_crypto()?;
 
         let mut mint = Mint::unpack(&mint_info.data.borrow())?;
 
         dest_account.mint = BorshPubkey::new(*mint_info.key);
         dest_account.is_initialized = true;
-        dest_account.comm = mint_data.out_comms.comms_proofs[0].comm;
+        dest_account.comm = mint_data.out_comms[0].0;
 
         mint.supply = mint
             .supply
@@ -93,14 +91,14 @@ impl Processor {
         let mut dest_account = Account::unpack(&dest_account_info.data.borrow())?;
 
         // Restricting to single 1-1 transfer for now
-        if source_account.comm != transfer_data.in_comms.comms[0] {
+        if source_account.comm != transfer_data.in_comms[0] {
             return Err(CTokenError::CommitmentMismatch.into());
         }
-        transfer_data.verify_proofs()?;
+        transfer_data.verify_crypto()?;
 
         // TODO: Make access to commitments more ergonomic
-        source_account.comm = transfer_data.out_comms.comms_proofs[0].comm;
-        dest_account.comm = dest_account.comm + transfer_data.out_comms.comms_proofs[1].comm;
+        source_account.comm = transfer_data.out_comms[0].0;
+        // dest_account.comm = dest_account.comm + transfer_data.out_comms[0].1;
 
         // Account::pack(source_account, &mut source_account_info.data.borrow_mut());
         // Account::pack(dest_account, &mut dest_account_info.data.borrow_mut());
