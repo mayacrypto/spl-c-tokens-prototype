@@ -8,10 +8,7 @@ use solana_program::{
     pubkey::Pubkey,
     program_error::ProgramError,
 };
-
-use crate::{
-    proof::PedersenComm,
-};
+use arrayref::array_ref;
 
 /// Mint data.
 #[repr(C)]
@@ -58,7 +55,7 @@ pub struct Account {
     /// Is `true` if this account has been initialized
     pub is_initialized: bool, // 1 byte
     /// The commitment associated with this account
-    pub comm: PedersenComm, // 32 bytes
+    pub comm: [u8; 32], // 32 bytes
 }
 impl Sealed for Account {}
 impl IsInitialized for Account {
@@ -112,15 +109,75 @@ impl BorshSerialize for BorshPubkey {
 }
 impl BorshDeserialize for BorshPubkey {
     fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        if buf.len() == 32 {
-            Ok(BorshPubkey(
-                    Pubkey::new(buf)
-            ))
-        } else {
-            Err(io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Bytes does not match Pubkey size"
-            ))
-        }
+        let pubkey = Pubkey::new(array_ref![buf, 0, 32]);
+        *buf = &buf[32..];
+        Ok(BorshPubkey(pubkey))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pack_unpack_mint() {
+        let check = Mint {
+            mint_authority: BorshPubkey::new(Pubkey::new(&[1; 32])),
+            supply: 42,
+            is_initialized: true,
+        };
+        let mut packed = vec![0; Mint::get_packed_len() + 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Mint::pack(check, &mut packed)
+        );
+        let mut packed = vec![0; Mint::get_packed_len() - 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Mint::pack(check, &mut packed),
+        );
+        let mut packed = vec![0; Mint::get_packed_len()];
+        Mint::pack(check, &mut packed).unwrap();
+        let expect = vec![
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+            1, 1, 1, // 32 bytes for mint authority pubkey
+            42, 0, 0, 0, 0, 0, 0, 0, // 8 bytes for supply
+            1, // 1 byte for is_initialized
+        ];
+        assert_eq!(packed, expect);
+        let unpacked = Mint::unpack(&packed).unwrap();
+        assert_eq!(unpacked, check);
+    }
+
+    #[test]
+    fn test_pack_unpack_account() {
+        let check = Account {
+            mint: BorshPubkey::new(Pubkey::new(&[1; 32])),
+            is_initialized: true,
+            comm: [0; 32],
+        };
+        let mut packed = vec![0; Account::get_packed_len() + 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Account::pack(check, &mut packed)
+        );
+        let mut packed = vec![0; Account::get_packed_len() - 1];
+        assert_eq!(
+            Err(ProgramError::InvalidAccountData),
+            Account::pack(check, &mut packed)
+        );
+        let mut packed = vec![0; Account::get_packed_len()];
+        Account::pack(check, &mut packed).unwrap();
+        let expect = vec![
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+            1, 1, 1, // 32 bytes for mint pubkey
+            1, // 1 byte for is_initialized
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, // 32 bytes for commitment associated with account
+        ];
+        assert_eq!(packed, expect);
+        let unpacked = Account::unpack(&packed).unwrap();
+        assert_eq!(unpacked, check);
     }
 }

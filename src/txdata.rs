@@ -1,33 +1,24 @@
-
 use borsh::{BorshSerialize, BorshDeserialize};
 
 use crate::{
     error::CTokenError,
-    proof::{Pedersen, PedersenComm, PedersenBase, ProofKnowledge, 
-        BorshScalar, BorshRangeProof,
-    },
+    proof::{BorshRangeProof, PedersenComm, ProofKnowledge}
 };
 
-use curve25519_dalek::{
-    scalar::Scalar,
-    ristretto::RistrettoPoint,
-    traits::Identity,
-};
-use bulletproofs::{
-    PedersenGens,
-    BulletproofGens,
-};
-use merlin::Transcript;
-use sha3::Sha3_512;
-
-// Bit length for the Bulletproof range proof. 
+// // use bulletproofs::{
+// //     PedersenGens,
+// //     BulletproofGens,
+// // };
+// // use merlin::Transcript;
 // 
-// Proof verification scales linearly with the bit length. If 32 bits of token granularity suffices
-// for applications, then this will decrease the cost of verification by half.
+// // Bit length for the Bulletproof range proof. 
+// // 
+// // Proof verification scales linearly with the bit length. If 32 bits of token granularity suffices
+// // for applications, then this will decrease the cost of verification by half.
+// // 
+// const RANGE_BIT_LENGTH: usize = 64;
 // 
-const RANGE_BIT_LENGTH: usize = 64;
-
-const TX_VEC_SIZE: usize = 2;
+// const TX_VEC_SIZE: usize = 2;
 
 /// Intuitively, we can think of an SPL confidential token account as a regular SPL token account
 /// but where the token amount is wrapped inside commitments. We can intuitively think of
@@ -71,22 +62,22 @@ const TX_VEC_SIZE: usize = 2;
 /// The proof-of-knowledge verification is essentially the cost of doing one Ed25519 signature
 /// verification. The bulk of the verification will be verifying the range proofs, which should
 /// require around 64*2 elliptic curve multiplication on Ristretto points (though each of these
-/// multiplications are largely independent and hence parallelizable operation).
+/// multiplications are largely independent and hence parallelizable operations).
 ///
 /// Notes on one-time usage of accounts:
 ///     - To prevent issues like front-running, an account is one-time-use per transaction. For
-///       example, suppose that an account with address [pk] holds a commitment [comm]. When the user
-///       spends tokens from this account, even if there are tokens left over from the transaction,
-///       the user must create a new account [pk'] with the new commitment [comm'] and purge the original
-///       account. There are other ways to prevent issues like front-running, but for the purpose
-///       of the prototype code, we make accounts one-time-use per transactin.
+///     example, suppose that an account with address [pk] holds a commitment [comm]. When the user
+///     spends tokens from this account, even if there are tokens left over from the transaction,
+///     the user must create a new account [pk'] with the new commitment [comm'] and purge the
+///     original account. There are other ways to prevent issues like front-running, but for the
+///     purpose of the prototype code, we make accounts one-time-use per transaction.
 ///
-///     - One optimization (from MimbleWimble) that can be made is to replace [pk] with the
-///       commitment [comm]. Public keys and Pedersen commitments are all 32-bytes, and Pedersen
-///       commitments are also randomly generated (and hence, collisions are highly unlikely). This
-///       is quite natural when combined with the point above that accounts are one-time-use since
-///       commitments constantly change with transactions (and hence, addresses constantly change). 
-///       for the prototype code, this optimization is not made to prevent possible confusion.
+///     - An optimization (from MimbleWimble) that can be made is to replace [pk] with the
+///     commitment [comm]. Public keys and Pedersen commitments are all 32-bytes, and Pedersen
+///     commitments are also randomly generated (and hence, collisions are highly unlikely). This
+///     is quite natural when combined with the point above that accounts are one-time-use since
+///     commitments constantly change with transactions (and hence, addresses constantly change).
+///     for the prototype code, this optimization is not made to prevent possible confusion.
 ///
 
 
@@ -113,36 +104,36 @@ pub struct MintData {
 }
 impl CryptoVerRequired for MintData {
     fn verify_crypto(&self) -> Result<(), CTokenError> {
-        let Self { amount, out_comms, proof_knowledge } = self;
+        // let Self { amount, out_comms, proof_knowledge } = self;
 
-        // Verify range proofs
-        for (comm, range_proof) in out_comms {
-            range_proof.verify_single(
-                &BulletproofGens::new(RANGE_BIT_LENGTH, 1),
-                &PedersenGens::default(),
-                &mut Transcript::new(b""),
-                &comm.getComm(),
-                1,
-            )?;
-        }
+        // // Verify range proofs
+        // for (comm, range_proof) in out_comms {
+        //     range_proof.verify_single(
+        //         &BulletproofGens::new(RANGE_BIT_LENGTH, 1),
+        //         &PedersenGens::default(),
+        //         &mut Transcript::new(b""),
+        //         &comm.getComm(),
+        //         1,
+        //     )?;
+        // }
 
-        // Setup for proof-of-knowledge verification
-        let ProofKnowledge { nonce, scalar } = proof_knowledge;
-        
-        let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes()); // get corresponding scalar
-        let nonce = nonce.decompress().unwrap(); // decompress nonce component
-        let PedersenBase{ G, .. } = PedersenBase::default(); // get corresponding base
-        let amount = Scalar::from(*amount)*G; // encode amount into a Ristretto point
+        // // Setup for proof-of-knowledge verification
+        // let ProofKnowledge { nonce, scalar } = proof_knowledge;
+        // 
+        // let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes()); // get corresponding scalar
+        // let nonce = nonce.decompress().unwrap(); // decompress nonce component
+        // let PedersenBase{ G, .. } = PedersenBase::default(); // get corresponding base
+        // let amount = Scalar::from(*amount)*G; // encode amount into a Ristretto point
 
-        let mut aggregate = RistrettoPoint::identity(); // sum up Ristretto components for each commitment
-        for (comm, _) in out_comms {
-            aggregate = aggregate + comm.getComm().decompress().unwrap();
-        }
+        // let mut aggregate = RistrettoPoint::identity(); // sum up Ristretto components for each commitment
+        // for (comm, _) in out_comms {
+        //     aggregate = aggregate + comm.getComm().decompress().unwrap();
+        // }
 
-        // Check algebraic relation for proof-of-knowledge
-        if **scalar * G == c * (aggregate - amount) + nonce {
-            return Err(CTokenError::InvalidProof);
-        }
+        // // Check algebraic relation for proof-of-knowledge
+        // if **scalar * G == c * (aggregate - amount) + nonce {
+        //     return Err(CTokenError::InvalidProof);
+        // }
         Ok(())
     }
 }
@@ -164,38 +155,38 @@ pub struct TransferData {
 }
 impl CryptoVerRequired for TransferData {
     fn verify_crypto(&self) -> Result<(), CTokenError> {
-        let Self { in_comms, out_comms, proof_knowledge } = self;
+        // let Self { in_comms, out_comms, proof_knowledge } = self;
         
-        // Verify range proofs
-        for (comm, range_proof) in out_comms {
-            range_proof.verify_single(
-                &BulletproofGens::new(RANGE_BIT_LENGTH, 1),
-                &PedersenGens::default(),
-                &mut Transcript::new(b""),
-                &comm.getComm(),
-                1,
-            )?;
-        }
+        // // Verify range proofs
+        // for (comm, range_proof) in out_comms {
+        //     range_proof.verify_single(
+        //         &BulletproofGens::new(RANGE_BIT_LENGTH, 1),
+        //         &PedersenGens::default(),
+        //         &mut Transcript::new(b""),
+        //         &comm.getComm(),
+        //         1,
+        //     )?;
+        // }
 
-        // Setup for proof-of-knowledge verification
-        let ProofKnowledge { nonce, scalar } = proof_knowledge;
+        // // Setup for proof-of-knowledge verification
+        // let ProofKnowledge { nonce, scalar } = proof_knowledge;
 
-        let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes()); // get corresponding scalar
-        let nonce = nonce.decompress().unwrap(); // decompress nonce component
-        let PedersenBase{ G, .. } = PedersenBase::default(); // get corresponding base
+        // let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes()); // get corresponding scalar
+        // let nonce = nonce.decompress().unwrap(); // decompress nonce component
+        // let PedersenBase{ G, .. } = PedersenBase::default(); // get corresponding base
 
-        let mut aggregate = RistrettoPoint::identity(); // sum up Ristretto components for each commitment
-        for comm in in_comms {
-            aggregate = aggregate - comm.getComm().decompress().unwrap();
-        }
-        for (comm, _) in out_comms {
-            aggregate = aggregate + comm.getComm().decompress().unwrap();
-        }
+        // let mut aggregate = RistrettoPoint::identity(); // sum up Ristretto components for each commitment
+        // for comm in in_comms {
+        //     aggregate = aggregate - comm.getComm().decompress().unwrap();
+        // }
+        // for (comm, _) in out_comms {
+        //     aggregate = aggregate + comm.getComm().decompress().unwrap();
+        // }
 
-        // Check algebraic relation for proof-of-knowledge
-        if **scalar * G == c * aggregate + nonce {
-            return Err(CTokenError::InvalidProof);
-        }
+        // // Check algebraic relation for proof-of-knowledge
+        // if **scalar * G == c * aggregate + nonce {
+        //     return Err(CTokenError::InvalidProof);
+        // }
         Ok(())
     }
 }
@@ -209,26 +200,27 @@ impl CryptoVerRequired for TransferData {
 pub struct CloseAccountData {
     /// Claimed number of tokens
     pub amount: u64,
-    /// Commitment
-    pub comm: PedersenComm,
-    /// Commitment opening
-    pub open: BorshScalar,
+    // /// Commitment
+    // pub comm: PedersenComm,
+    // /// Commitment opening
+    // pub open: BorshScalar,
 }
 impl CryptoVerRequired for CloseAccountData {
     fn verify_crypto(&self) -> Result<(), CTokenError> {
-        let Self { amount, comm, open } = self;
+        // let Self { amount, comm, open } = self;
 
-        // Verify commitment and opening
-        if Pedersen::verify_commitment(
-            comm,
-            &PedersenBase::default(),
-            &Scalar::from(*amount),
-            open,
-        ) {
-            Ok(())
-        } else {
-            Err(CTokenError::OpeningInvalid)
-        }
+        // // Verify commitment and opening
+        // if Pedersen::verify_commitment(
+        //     comm,
+        //     &PedersenBase::default(),
+        //     &Scalar::from(*amount),
+        //     open,
+        // ) {
+        //     Ok(())
+        // } else {
+        //     Err(CTokenError::OpeningInvalid)
+        // }
+        Ok(())
     }
 }
 

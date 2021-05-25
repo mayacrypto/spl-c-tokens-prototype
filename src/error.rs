@@ -1,5 +1,5 @@
 use thiserror::Error;
-use bulletproofs::ProofError;
+// use bulletproofs::ProofError;
 
 use solana_program::program_error::ProgramError;
 
@@ -35,8 +35,8 @@ impl From<CTokenError> for ProgramError {
     }
 }
 
-impl From<ProofError> for CTokenError {
-    fn from(_: ProofError) -> Self {
-        CTokenError::InvalidProof
-    }
-}
+// impl From<ProofError> for CTokenError {
+//     fn from(_: ProofError) -> Self {
+//         CTokenError::InvalidProof
+//     }
+// }

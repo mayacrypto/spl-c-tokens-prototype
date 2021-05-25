@@ -9,7 +9,7 @@ use curve25519_dalek::{
 };
 use sha3::Sha3_512;
 use borsh::{BorshSerialize, BorshDeserialize};
-use bulletproofs::RangeProof;
+// use bulletproofs::RangeProof;
 use std::io::{Write, Error};
 use std::io;
 use arrayref::array_ref;
@@ -55,6 +55,9 @@ pub struct PedersenComm {
     comm: BorshRistretto,
 }
 impl PedersenComm {
+    pub fn new(comm: BorshRistretto) -> Self {
+        Self{ comm }
+    }
     pub fn getComm(&self) -> BorshRistretto {
         self.comm
     }
@@ -106,15 +109,14 @@ impl BorshSerialize for BorshScalar {
 }
 impl BorshDeserialize for BorshScalar {
     fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        let buf = array_ref![buf, 0, 32];
-        
-        let scalar = Scalar::from_canonical_bytes(*buf);
+        let scalar = Scalar::from_canonical_bytes(*array_ref![buf, 0, 32]);
         if scalar.is_none() {
             return Err(io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "Scalar deserialize error"
             ))
         };
+        *buf = &buf[32..];
         Ok(BorshScalar(scalar.unwrap()))
     }
 }
@@ -146,52 +148,47 @@ impl BorshSerialize for BorshRistretto {
 }
 impl BorshDeserialize for BorshRistretto {
     fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        let buf = array_ref![buf, 0, 32];
-        if buf.len() == 32 {
-            Ok(BorshRistretto(
-                    CompressedRistretto(*buf)
-            ))
-        } else {
-            Err(io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Deserialize error"
-            ))
-        }
+        let ristretto = CompressedRistretto(*array_ref![buf, 0, 32]);
+        *buf = &buf[32..];
+        Ok(BorshRistretto(ristretto))
     }
 }
 
-/// Type wrapper for RangeProof: to implement the Borsh Serialize/Deserialize traits using
-/// the New Type Pattern.
-#[derive(Clone, Debug)]
-pub struct BorshRangeProof(RangeProof);
-impl BorshRangeProof {
-    pub fn new(range_proof: RangeProof) -> Self {
-        Self(range_proof)
-    }
-}
-impl Deref for BorshRangeProof {
-    type Target = RangeProof;
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug)]
+pub struct BorshRangeProof;
 
-    fn deref(&self) -> &RangeProof {
-        let Self(range_proof) = self;
-        range_proof
-    }
-}
-impl BorshSerialize for BorshRangeProof {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        let Self(range_proof) = self;
-        let range_proof_bytes = range_proof.to_bytes();
-        writer.write(&range_proof_bytes)?;
-        Ok(())
-    }
-}
-impl BorshDeserialize for BorshRangeProof {
-    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        let range_proof = RangeProof::from_bytes(buf)
-            .or(Err(std::io::ErrorKind::InvalidData))?;
-        Ok( BorshRangeProof(range_proof) )
-    }
-}
+// /// Type wrapper for RangeProof: to implement the Borsh Serialize/Deserialize traits using
+// /// the New Type Pattern.
+// #[derive(Clone, Debug)]
+// pub struct BorshRangeProof(RangeProof);
+// impl BorshRangeProof {
+//     pub fn new(range_proof: RangeProof) -> Self {
+//         Self(range_proof)
+//     }
+// }
+// impl Deref for BorshRangeProof {
+//     type Target = RangeProof;
+// 
+//     fn deref(&self) -> &RangeProof {
+//         let Self(range_proof) = self;
+//         range_proof
+//     }
+// }
+// impl BorshSerialize for BorshRangeProof {
+//     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+//         let Self(range_proof) = self;
+//         let range_proof_bytes = range_proof.to_bytes();
+//         writer.write(&range_proof_bytes)?;
+//         Ok(())
+//     }
+// }
+// impl BorshDeserialize for BorshRangeProof {
+//     fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+//         let range_proof = RangeProof::from_bytes(buf)
+//             .or(Err(std::io::ErrorKind::InvalidData))?;
+//         Ok( BorshRangeProof(range_proof) )
+//     }
+// }
 
 // We need ElGamal for anonymity, but not necessarily for confidentiality.
 //
@@ -253,7 +250,7 @@ mod tests {
         let C = open * G + val * H;
 
         // Wrap the commitment component into PedersenComm
-        let comm = PedersenComm { comm: C.compress() };
+        let comm = PedersenComm { comm: BorshRistretto(C.compress()) };
 
         // Return the commitment and the corresponding opening
         (comm, open)

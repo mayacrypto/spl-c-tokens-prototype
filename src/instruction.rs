@@ -17,7 +17,9 @@ pub enum CTokenInstruction {
     /// Initializes a new mint.
     ///
     /// This is analogous to the `InitializeMint` instruction in the SPL token program with
-    /// decimals and freeze_authority removed for prototyping purposes.
+    /// decimals and freeze_authority removed for prototyping purposes. As in the regular
+    /// SPL program, the instruction requires no signers and must be included within the
+    /// same transaction as the system program's `CreateAccount` instruction.
     ///
     /// Accounts expected by this instruction:
     ///
@@ -52,9 +54,11 @@ pub enum CTokenInstruction {
     ///
     /// Accounts expected by this instruction:
     ///
-    ///   0. `[writable]` The source account.
-    ///   1. `[writable]` The destination account.
-    ///   2. `[]` Rent sysvar
+    ///   0. `[writable]` The first source account.
+    ///   1. `[writable]` The second source account
+    ///   2. `[writable]` The first destination account.
+    ///   3. `[writable]` The second destination account.
+    ///   4. `[]` Rent sysvar
     ///
     Transfer {
         /// Data for the transfer
@@ -131,7 +135,6 @@ impl CTokenInstruction {
                 buf.push(3);
                 buf.extend_from_slice(close_account_data.try_to_vec().unwrap().as_ref());
             },
-            _ => {}
         };
         buf
     }
