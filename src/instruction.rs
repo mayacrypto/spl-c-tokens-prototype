@@ -54,11 +54,12 @@ pub enum CTokenInstruction {
     ///
     /// Accounts expected by this instruction:
     ///
-    ///   0. `[writable]` The first source account.
-    ///   1. `[writable]` The second source account
-    ///   2. `[writable]` The first destination account.
-    ///   3. `[writable]` The second destination account.
-    ///   4. `[]` Rent sysvar
+    ///   0. `[]` The mint
+    ///   1. `[writable]` The first source account.
+    ///   2. `[writable]` The second source account
+    ///   3. `[writable]` The first destination account.
+    ///   4. `[writable]` The second destination account.
+    ///   5. `[]` Rent sysvar
     ///
     Transfer {
         /// Data for the transfer

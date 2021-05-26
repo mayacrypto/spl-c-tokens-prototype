@@ -27,6 +27,10 @@ pub enum CTokenError {
     /// Commitment opening is invalid
     #[error("Opening invalid")]
     OpeningInvalid,
+    /// Account belongs to a different mint
+    #[error("Mint mismatch")]
+    MintMismatch,
+
 }
 
 impl From<CTokenError> for ProgramError {

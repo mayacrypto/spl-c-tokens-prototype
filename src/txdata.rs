@@ -171,9 +171,11 @@ pub fn create_mint_data_for_test(amount: u64) -> MintData {
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct TransferData {
     /// Commitments spent
-    pub in_comms: Vec<PedersenComm>,
+    pub in_comms: (PedersenComm, PedersenComm),
     /// Commitments produced
-    pub out_comms: Vec<(PedersenComm, BorshRangeProof)>,
+    pub out_comms: (PedersenComm, PedersenComm),
+    /// Range proofs for the produced commitments
+    pub range_proofs: (BorshRangeProof, BorshRangeProof),
     /// Proof of knowledge to validate transaction
     pub proof_knowledge: ProofKnowledge,
 }

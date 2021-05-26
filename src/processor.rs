@@ -1,6 +1,6 @@
 use solana_program::{
     program_pack::Pack,
-    account_info::{next_account_info, AccountInfo},
+    account_info::{next_account_info, next_account_infos, AccountInfo},
     entrypoint::ProgramResult,
     pubkey::Pubkey,
     msg,
@@ -54,6 +54,7 @@ impl Processor {
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
         let dest_account_info = next_account_info(account_info_iter)?;
+        let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
         
         let mut dest_account = Account::unpack_unchecked(&dest_account_info.data.borrow())?;
 
@@ -73,6 +74,11 @@ impl Processor {
         // `Mint` for now.
         if dest_account.is_initialized {
             return Err(CTokenError::AlreadyInUse.into());
+        }
+
+        // Check rent exempt
+        if !rent.is_exempt(dest_account_info.lamports(), dest_account_info.data_len()) {
+            return Err(CTokenError::NotRentExempt.into());
         }
 
         // Verify all the crypto components:
@@ -101,49 +107,62 @@ impl Processor {
     }
 
     pub fn process_transfer(
-        _program_id: &Pubkey,
-        _accounts: &[AccountInfo],
-        _transfer_data: TransferData,
+        accounts: &[AccountInfo],
+        transfer_data: TransferData,
     ) -> ProgramResult {
-        // let account_info_iter = &mut accounts.iter();
+        let account_info_iter = &mut accounts.iter();
+        let mint_info = next_account_info(account_info_iter)?;
 
-        // let first_source_account_info = next_account_info(account_info_iter)?;
-        // let second_source_account_info = next_account_info(account_info_iter)?;
-        // 
-        // let mut first_source_account = Account::unpack(&source_account_info.data.borrow())?;
-        // let mut second_source_account = Account::unpack(&source_account_info.data.borrow())?;
+        let sender_source_account_info = next_account_info(account_info_iter)?;
+        let sender_source_account = Account::unpack(&sender_source_account_info.data.borrow())?;
+        let receiver_source_account_info = next_account_info(account_info_iter)?;
+        let receiver_source_account = Account::unpack(&receiver_source_account_info.data.borrow())?;
 
-        // let first_dest_account_info = next_account_info(account_info_iter)?;
-        // let second_dest_account_info = next_account_info(account_info_iter)?;
+        if (sender_source_account.comm, receiver_source_account.comm) != transfer_data.in_comms {
+            return Err(CTokenError::CommitmentMismatch.into());
+        }
 
-        // let mut first_dest_account = Account::unpack(&source_account_info.data.borrow())?;
-        // let mut second_dest_account = Account::unpack(&dest_account_info.data.borrow())?;
+        if *sender_source_account.mint != *mint_info.key 
+            || *receiver_source_account.mint != *mint_info.key {
+            return Err(CTokenError::MintMismatch.into());
+        }
 
-        // // Check that the commitments in the accounts are consistent with the commitments
-        // // in the transfer data.
-        // //
-        // // If the accounts addresses are replaced by commitments, then this check is 
-        // // not required. See txdata.rs.
-        // if [first_source_account, second_source_account] != transfer_data.in_comms ||
-        //     [first_dest_account, second_dest_account] != transfer_data.out_comms {
-        //         return Err(CTokenError::CommitmentMismatch.into());
-        // }
+        let sender_dest_account_info = next_account_info(account_info_iter)?;
+        let mut sender_dest_account = Account::unpack(&sender_dest_account_info.data.borrow())?;
+        let receiver_dest_account_info = next_account_info(account_info_iter)?;
+        let mut receiver_dest_account = Account::unpack(&receiver_dest_account_info.data.borrow())?;
+        
+        if sender_dest_account.is_initialized || receiver_dest_account.is_initialized {
+            return Err(CTokenError::AlreadyInUse.into());
+        }
+        
+        let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+        if !rent.is_exempt(sender_dest_account_info.lamports(), sender_dest_account_info.data_len()) || 
+            !rent.is_exempt(sender_dest_account_info.lamports(), sender_dest_account_info.data_len()) {
+            return Err(CTokenError::NotRentExempt.into());
+        }
 
-        // // Verify all the crypto components:
-        // // - verify that each newly generated commitments are valid commitments
-        // //   to a positive 64-bit number (Bulletproof)
-        // // - verify that the sum of all the incoming commitments contain the same
-        // //   value as the sum of all newly generated commitments
-        // transfer_data.verify_crypto()?;
+        // Verify all the crypto components:
+        // - verify that each newly generated commitments are valid commitments
+        //   to a positive 64-bit number (range proof)
+        // - verify that the sum of all the incoming commitments contain the same
+        //   value as the sum of all newly generated commitments (proof of knowledge)
+        transfer_data.verify_crypto()?;
 
-        // source_account.comm = transfer_data.out_comms[0].0;
+        // Close the two source accounts
+        **sender_source_account_info.lamports.borrow_mut() = 0;
+        **receiver_source_account_info.lamports.borrow_mut() = 0;
 
-        // // TODO: Make access to commitments more ergonomic
-        // source_account.comm = transfer_data.out_comms[0].0;
-        // // dest_account.comm = dest_account.comm + transfer_data.out_comms[0].1;
-
-        // // Account::pack(source_account, &mut source_account_info.data.borrow_mut());
-        // // Account::pack(dest_account, &mut dest_account_info.data.borrow_mut());
+        // Initialize the two destination accounts
+        sender_dest_account.mint = BorshPubkey::new(*mint_info.key);
+        sender_dest_account.is_initialized = true;
+        sender_dest_account.comm = transfer_data.out_comms.0;
+        Account::pack(sender_dest_account, &mut sender_dest_account_info.data.borrow_mut())?;
+        
+        receiver_dest_account.mint = BorshPubkey::new(*mint_info.key);
+        receiver_dest_account.is_initialized = true;
+        receiver_dest_account.comm = transfer_data.out_comms.1;
+        Account::pack(receiver_dest_account, &mut receiver_dest_account_info.data.borrow_mut())?;
 
         Ok(())
     }
@@ -171,7 +190,7 @@ impl Processor {
             }
             CTokenInstruction::Transfer { transfer_data } => {
                 msg!("Instruction: Transfer");
-                Self::process_transfer(program_id, accounts, transfer_data)
+                Self::process_transfer(accounts, transfer_data)
             }
             CTokenInstruction::CloseAccount { close_account_data } => {
                 msg!("Instruction: CloseAccount");
