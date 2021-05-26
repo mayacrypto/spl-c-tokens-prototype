@@ -3,6 +3,11 @@ use std::io::{Write, Error};
 use std::io;
 use std::ops::Deref;
 
+use crate::{
+    proof::{BorshRistretto, PedersenComm},
+};
+use curve25519_dalek::ristretto::CompressedRistretto;
+
 use solana_program::{
     program_pack::{IsInitialized, Pack, Sealed},
     pubkey::Pubkey,
@@ -55,7 +60,7 @@ pub struct Account {
     /// Is `true` if this account has been initialized
     pub is_initialized: bool, // 1 byte
     /// The commitment associated with this account
-    pub comm: [u8; 32], // 32 bytes
+    pub comm: PedersenComm, // 32 bytes
 }
 impl Sealed for Account {}
 impl IsInitialized for Account {
@@ -82,6 +87,10 @@ impl Pack for Account {
     }
 }
 
+/// For some reason, I cannot derive BorshDeserialize and BorshSerialize for 
+/// the Pubkey type. This is a newbie issue. Let me create a new type wrapper 
+/// for now.
+///
 /// Type wrapper of Pubkey: to implement the Borsh Serialize/Deserialize traits
 /// using the New Type Pattern.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -155,7 +164,7 @@ mod tests {
         let check = Account {
             mint: BorshPubkey::new(Pubkey::new(&[1; 32])),
             is_initialized: true,
-            comm: [0; 32],
+            comm: PedersenComm::new(BorshRistretto::new(CompressedRistretto([0; 32]))),
         };
         let mut packed = vec![0; Account::get_packed_len() + 1];
         assert_eq!(

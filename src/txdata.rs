@@ -2,7 +2,12 @@ use borsh::{BorshSerialize, BorshDeserialize};
 
 use crate::{
     error::CTokenError,
-    proof::{BorshRangeProof, PedersenComm, ProofKnowledge}
+    proof::{BorshRangeProof, BorshRistretto, BorshScalar, PedersenComm, ProofKnowledge}
+};
+
+use curve25519_dalek::{
+    ristretto::CompressedRistretto,
+    scalar::Scalar,
 };
 
 // // use bulletproofs::{
@@ -93,12 +98,12 @@ pub trait CryptoVerRequired {
 /// - Proof of knowledge verification that the sum of the output commitments indeed contain the
 ///   specified amount create
 ///
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone)]
 pub struct MintData {
     /// Amount of newly minted tokens
     pub amount: u64,
     /// Commitments produced
-    pub out_comms: Vec<(PedersenComm, BorshRangeProof)>,
+    pub out_comm: (PedersenComm, BorshRangeProof),
     /// Proof of knowledge to validate transaction
     pub proof_knowledge: ProofKnowledge,
 }
@@ -135,6 +140,25 @@ impl CryptoVerRequired for MintData {
         //     return Err(CTokenError::InvalidProof);
         // }
         Ok(())
+    }
+}
+
+pub fn create_mint_data_for_test(amount: u64) -> MintData {
+    let pedersen_comm = PedersenComm::new(
+        BorshRistretto::new(CompressedRistretto([0; 32]))
+    );
+    let range_proof = BorshRangeProof;
+    let out_comm = (pedersen_comm, range_proof);
+
+    let proof_knowledge = ProofKnowledge { 
+        nonce: BorshRistretto::new(CompressedRistretto([0; 32])),
+        scalar: BorshScalar::new(Scalar::default()),
+    };
+
+    MintData {
+        amount: amount,
+        out_comm,
+        proof_knowledge,
     }
 }
 

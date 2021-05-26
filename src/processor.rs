@@ -87,7 +87,7 @@ impl Processor {
 
         dest_account.mint = BorshPubkey::new(*mint_info.key);
         dest_account.is_initialized = true;
-        dest_account.comm = [0; 32];
+        dest_account.comm = mint_data.out_comm.0;
 
         mint.supply = mint
             .supply
@@ -188,6 +188,7 @@ mod tests {
     use crate::{
         instruction::*,
         proof::{BorshScalar, BorshRistretto, BorshRangeProof, PedersenComm, ProofKnowledge},
+        txdata::{create_mint_data_for_test},
     };
     use solana_program::{
         account_info::IntoAccountInfo, clock::Epoch, instruction::Instruction, sysvar::rent,
@@ -222,9 +223,8 @@ mod tests {
         let program_id = crate::id();
         let mint_authority_key = Pubkey::new_unique();
         let mint_key = Pubkey::new_unique();
-        let mut mint_account = SolanaAccount::new(42, Mint::get_packed_len(), &program_id);
-
-        let mut rent_sysvar = create_account_for_test(&Rent::default());
+        let mut mint_account = SolanaAccount::new(57, Mint::get_packed_len(), &program_id);
+        let mut rent_sysvar = rent_sysvar();
 
         // mint is not rent exempt
         assert_eq!(
@@ -234,10 +234,27 @@ mod tests {
                 vec![&mut mint_account, &mut rent_sysvar],
             )
         );
+
+        mint_account.lamports = mint_minimum_balance();
+
+        // create new mint
+        do_process_instruction(
+            initialize_mint(&program_id, &mint_key, &mint_authority_key).unwrap(),
+            vec![&mut mint_account, &mut rent_sysvar],
+        ).unwrap();
+
+        // create twice
+        assert_eq!(
+            Err(CTokenError::AlreadyInUse.into()),
+            do_process_instruction(
+                initialize_mint(&program_id, &mint_key, &mint_authority_key).unwrap(),
+                vec![&mut mint_account, &mut rent_sysvar]
+            )
+        );
     }
 
     fn account_minimum_balance() -> u64 {
-        Rent::default().minimum_balance(Mint::get_packed_len())
+        Rent::default().minimum_balance(Account::get_packed_len())
     }
 
     fn mint_minimum_balance() -> u64 {
@@ -256,18 +273,18 @@ mod tests {
         let mut mint_account = 
             SolanaAccount::new(mint_minimum_balance(), Mint::get_packed_len(), &program_id);
 
-        let owner_key = Pubkey::new_unique();
-        let mut owner_account = SolanaAccount::default();
+        let mint_authority_key = Pubkey::new_unique();
+        let mut mint_authority_account = SolanaAccount::default();
 
         let mut rent_sysvar = rent_sysvar();
 
         // create new mint with owner
         do_process_instruction(
-            initialize_mint(&program_id, &mint_key, &owner_key).unwrap(),
+            initialize_mint(&program_id, &mint_key, &mint_authority_key).unwrap(),
             vec![&mut mint_account, &mut rent_sysvar],
         ).unwrap();
         
-        // create account
+        // create an account
         let account_key = Pubkey::new_unique();
         let mut account_account = SolanaAccount::new(
             account_minimum_balance(),
@@ -275,29 +292,59 @@ mod tests {
             &program_id,
         );
 
-        // build MintData
-        let pedersen_comm = PedersenComm::new(
-            BorshRistretto::new(CompressedRistretto([0; 32]))
-        );
-        let range_proof = BorshRangeProof;
-        let out_comms = vec![(pedersen_comm, range_proof)];
-
-        let proof_knowledge = ProofKnowledge { 
-            nonce: BorshRistretto::new(CompressedRistretto([0; 32])),
-            scalar: BorshScalar::new(Scalar::default()),
-        };
-
-        let mint_data = MintData {
-            amount: 10,
-            out_comms,
-            proof_knowledge,
-        };
+        let mint_data = create_mint_data_for_test(57);
 
         do_process_instruction(
-            mint(&program_id, &mint_key, &account_key, &owner_key, mint_data).unwrap(), 
-            vec![&mut mint_account, &mut account_account, &mut owner_account],
+            mint(&program_id, &mint_key, &account_key, &mint_authority_key, mint_data).unwrap(), 
+            vec![&mut mint_account, &mut account_account, &mut mint_authority_account],
         ).unwrap();
+
+        // The mint supply should be updated.
+        let mint_state = Mint::unpack_unchecked(&mint_account.data).unwrap();
+        assert_eq!(mint_state.supply, 57);
+
+        // The commitment in the associated account should be updated.
+        let account = Account::unpack_unchecked(&account_account.data).unwrap();
+        assert_eq!(account.comm, mint_data.out_comm.0);
+
+
+        // test for account already-in-use error
+        assert_eq!(
+            Err(CTokenError::AlreadyInUse.into()),
+            do_process_instruction(
+                mint(&program_id, &mint_key, &account_key, &mint_authority_key, mint_data).unwrap(), 
+                vec![&mut mint_account, &mut account_account, &mut mint_authority_account],
+            )
+        );
+
+        // create another account to test supply accumulation
+        let account2_key = Pubkey::new_unique();
+        let mut account2_account = SolanaAccount::new(
+            account_minimum_balance(),
+            Account::get_packed_len(),
+            &program_id,
+        );
+
+        let mint_data = create_mint_data_for_test(43);
+
+        do_process_instruction(
+            mint(&program_id, &mint_key, &account2_key, &mint_authority_key, mint_data).unwrap(), 
+            vec![&mut mint_account, &mut account2_account, &mut mint_authority_account],
+        ).unwrap();
+
+        // The mint supply should be updated.
+        let mint_state = Mint::unpack_unchecked(&mint_account.data).unwrap();
+        assert_eq!(mint_state.supply, 100);
+
+        // The commitment in the associated account should be updated.
+        let account = Account::unpack_unchecked(&account2_account.data).unwrap();
+        assert_eq!(account.comm, mint_data.out_comm.0);
+
+
+        // TODO: Test improper Proof of Knowledge and Range Proof
+
     }
+
 }
 
 

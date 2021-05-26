@@ -16,7 +16,7 @@ use arrayref::array_ref;
 use std::ops::Deref;
 
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, Clone, Copy)]
 pub struct ProofKnowledge {
     /// Nonce component
     pub nonce: BorshRistretto,
@@ -154,7 +154,7 @@ impl BorshDeserialize for BorshRistretto {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Clone, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, Copy, Clone, Debug)]
 pub struct BorshRangeProof;
 
 // /// Type wrapper for RangeProof: to implement the Borsh Serialize/Deserialize traits using
