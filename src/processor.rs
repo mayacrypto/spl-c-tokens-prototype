@@ -51,9 +51,11 @@ impl Processor {
         accounts: &[AccountInfo],
         mint_data: MintData,
     ) -> ProgramResult {
+
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
         let dest_account_info = next_account_info(account_info_iter)?;
+        let expected_authority = next_account_info(account_info_iter)?;
         let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
         
         let mut dest_account = Account::unpack_unchecked(&dest_account_info.data.borrow())?;
@@ -76,10 +78,12 @@ impl Processor {
             return Err(CTokenError::AlreadyInUse.into());
         }
 
+
         // Check rent exempt
         if !rent.is_exempt(dest_account_info.lamports(), dest_account_info.data_len()) {
             return Err(CTokenError::NotRentExempt.into());
         }
+
 
         // Verify all the crypto components:
         // - verify that each newly generated commitments are valid commitments 
@@ -88,12 +92,16 @@ impl Processor {
         //   the claimed mint amount
         mint_data.verify_crypto()?;
 
-        // Update the mint and newly created account
+        // Validate mint authority
         let mut mint = Mint::unpack(&mint_info.data.borrow())?;
+        if *expected_authority.key != *mint.mint_authority {
+            return Err(CTokenError::OwnerMismatch.into());
+        }
 
+        // Update the mint and newly created account
         dest_account.mint = BorshPubkey::new(*mint_info.key);
         dest_account.is_initialized = true;
-        dest_account.comm = mint_data.out_comm.0;
+        dest_account.comm = mint_data.out_comm;
 
         mint.supply = mint
             .supply
@@ -207,7 +215,7 @@ mod tests {
     use crate::{
         instruction::*,
         proof::{BorshScalar, BorshRistretto, BorshRangeProof, PedersenComm, ProofKnowledge},
-        txdata::{create_mint_data_for_test},
+        txdata::{sample_mint_client_for_test},
     };
     use solana_program::{
         account_info::IntoAccountInfo, clock::Epoch, instruction::Instruction, sysvar::rent,
@@ -311,11 +319,12 @@ mod tests {
             &program_id,
         );
 
-        let mint_data = create_mint_data_for_test(57);
+        let mint_data = sample_mint_client_for_test(57);
 
         do_process_instruction(
             mint(&program_id, &mint_key, &account_key, &mint_authority_key, mint_data).unwrap(), 
-            vec![&mut mint_account, &mut account_account, &mut mint_authority_account],
+            vec![&mut mint_account, &mut account_account, &mut mint_authority_account, 
+            &mut rent_sysvar],
         ).unwrap();
 
         // The mint supply should be updated.
@@ -324,7 +333,7 @@ mod tests {
 
         // The commitment in the associated account should be updated.
         let account = Account::unpack_unchecked(&account_account.data).unwrap();
-        assert_eq!(account.comm, mint_data.out_comm.0);
+        assert_eq!(account.comm, mint_data.out_comm);
 
 
         // test for account already-in-use error
@@ -332,7 +341,8 @@ mod tests {
             Err(CTokenError::AlreadyInUse.into()),
             do_process_instruction(
                 mint(&program_id, &mint_key, &account_key, &mint_authority_key, mint_data).unwrap(), 
-                vec![&mut mint_account, &mut account_account, &mut mint_authority_account],
+                vec![&mut mint_account, &mut account_account, &mut mint_authority_account,
+                &mut rent_sysvar],
             )
         );
 
@@ -344,11 +354,12 @@ mod tests {
             &program_id,
         );
 
-        let mint_data = create_mint_data_for_test(43);
+        let mint_data = sample_mint_client_for_test(43);
 
         do_process_instruction(
             mint(&program_id, &mint_key, &account2_key, &mint_authority_key, mint_data).unwrap(), 
-            vec![&mut mint_account, &mut account2_account, &mut mint_authority_account],
+            vec![&mut mint_account, &mut account2_account, &mut mint_authority_account,
+            &mut rent_sysvar],
         ).unwrap();
 
         // The mint supply should be updated.
@@ -357,7 +368,7 @@ mod tests {
 
         // The commitment in the associated account should be updated.
         let account = Account::unpack_unchecked(&account2_account.data).unwrap();
-        assert_eq!(account.comm, mint_data.out_comm.0);
+        assert_eq!(account.comm, mint_data.out_comm);
 
 
         // TODO: Test improper Proof of Knowledge and Range Proof

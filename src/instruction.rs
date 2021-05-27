@@ -188,6 +188,7 @@ pub fn mint(
         AccountMeta::new(*mint_pubkey, false),
         AccountMeta::new(*account_pubkey, false),
         AccountMeta::new_readonly(*signer_pubkey, true),
+        AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];
     Ok(Instruction {
         program_id: *c_token_program_id,
@@ -199,15 +200,21 @@ pub fn mint(
 /// Creates a `Transfer` instruction.
 pub fn transfer(
     c_token_program_id: &Pubkey,
-    source_pubkey: &Pubkey,
-    destination_pubkey: &Pubkey,
+    mint_pubkey: &Pubkey,
+    sender_source_pubkey: &Pubkey,
+    receiver_source_pubkey: &Pubkey,
+    sender_dest_pubkey: &Pubkey,
+    receiver_dest_pubkey: &Pubkey,
     transfer_data: TransferData,
 ) -> Result<Instruction, ProgramError> {
     let data = CTokenInstruction::Transfer { transfer_data }.pack();
 
     let accounts = vec![
-        AccountMeta::new(*source_pubkey, false),
-        AccountMeta::new(*destination_pubkey, false),
+        AccountMeta::new(*sender_source_pubkey, false),
+        AccountMeta::new(*receiver_source_pubkey, false),
+        AccountMeta::new(*sender_dest_pubkey, false),
+        AccountMeta::new(*receiver_dest_pubkey, false),
+        AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];
     Ok(Instruction {
         program_id: *c_token_program_id,

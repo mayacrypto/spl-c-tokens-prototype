@@ -30,7 +30,9 @@ pub enum CTokenError {
     /// Account belongs to a different mint
     #[error("Mint mismatch")]
     MintMismatch,
-
+    /// Mint owner does not match
+    #[error("OwnerMismatch")]
+    OwnerMismatch,
 }
 
 impl From<CTokenError> for ProgramError {
