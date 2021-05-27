@@ -15,8 +15,9 @@ use std::io;
 use arrayref::array_ref;
 use std::ops::Deref;
 
+use rand_core::OsRng; // Only for generating commitments
 
-#[derive(BorshDeserialize, BorshSerialize, Clone, Copy)]
+#[derive(BorshDeserialize, BorshSerialize, Clone, Copy, Debug)]
 pub struct ProofKnowledge {
     /// Nonce component
     pub nonce: BorshRistretto,
@@ -231,31 +232,22 @@ pub struct BorshRangeProof;
 //     }
 // }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rand_core::OsRng;
 
-    fn commit_pedersen(base: PedersenBase, val: Scalar, open: Option<Scalar>) 
-        -> (PedersenComm, Scalar) {
-        let PedersenBase{ G, H } = base;
+pub fn commit_pedersen(amount: u64) -> (PedersenComm, BorshScalar) {
+    let PedersenBase{ G, H } = PedersenBase::default();
 
-        // If a commitment opening is not specified, sample a random opening
-        let open = open.or_else(|| {
-            let mut rng = OsRng;
-            Some(Scalar::random(&mut rng))
-        }).unwrap();
+    // Sample a random opening
+    let open = Scalar::random(&mut OsRng);
 
-        // Generate the commitment using the opening
-        let C = open * G + val * H;
+    // Generate the commitment using the opening
+    let amount_scalar = Scalar::from(amount);
+    let C = open * G + amount_scalar * H;
 
-        // Wrap the commitment component into PedersenComm
-        let comm = PedersenComm { comm: BorshRistretto(C.compress()) };
+    // Wrap the commitment component into PedersenComm
+    let comm = PedersenComm { comm: BorshRistretto(C.compress()) };
 
-        // Return the commitment and the corresponding opening
-        (comm, open)
-    }
-
-    // TODO: Write tests here
-
+    // Return the commitment and the corresponding opening
+    (comm, BorshScalar::new(open))
 }
+
+

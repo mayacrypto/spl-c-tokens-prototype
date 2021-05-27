@@ -210,6 +210,7 @@ pub fn transfer(
     let data = CTokenInstruction::Transfer { transfer_data }.pack();
 
     let accounts = vec![
+        AccountMeta::new(*mint_pubkey, false),
         AccountMeta::new(*sender_source_pubkey, false),
         AccountMeta::new(*receiver_source_pubkey, false),
         AccountMeta::new(*sender_dest_pubkey, false),

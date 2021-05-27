@@ -4,7 +4,7 @@ use crate::{
     error::CTokenError,
     proof::{
         BorshRangeProof, BorshRistretto, BorshScalar, PedersenComm, ProofKnowledge,
-        PedersenBase,
+        PedersenBase, commit_pedersen,
     }
 };
 use sha3::Sha3_512;
@@ -14,6 +14,7 @@ use curve25519_dalek::{
     scalar::Scalar,
     traits::Identity,
 };
+use rand_core::OsRng; // Only for generating commitments and proof of knowledge
 
 // // use bulletproofs::{
 // //     PedersenGens,
@@ -178,7 +179,7 @@ pub fn sample_mint_client_for_test(amount: u64) -> MintData {
 /// - Range proof verification for each of the output commitments 
 /// - Proof of knowledge verification that the sum of the input and output commitments contain 0
 ///
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct TransferData {
     /// Sender and receiver source commitments
     pub in_comms: (PedersenComm, PedersenComm),
@@ -187,11 +188,11 @@ pub struct TransferData {
     /// Range proofs for the destination commitments
     pub range_proofs: (BorshRangeProof, BorshRangeProof),
     /// Proof of knowledge to validate transaction
-    pub proof_knowledge: ProofKnowledge,
+    pub proofs_knowledge: (ProofKnowledge, ProofKnowledge),
 }
 impl CryptoVerRequired for TransferData {
     fn verify_crypto(&self) -> Result<(), CTokenError> {
-        let Self { in_comms, out_comms, range_proofs, proof_knowledge } = self;
+        let Self { in_comms, out_comms, range_proofs, proofs_knowledge } = self;
         
         // Skipping range proof verification for now
         //
@@ -207,62 +208,71 @@ impl CryptoVerRequired for TransferData {
         // }
 
         // Setup for proof-of-knowledge verification
-        let ProofKnowledge { nonce, scalar } = proof_knowledge;
+        let (proof_knowledge_sender, proof_knowledge_receiver) = proofs_knowledge;
+        let ProofKnowledge{ nonce: sender_nonce, scalar: sender_scalar } = proof_knowledge_sender;
+        let ProofKnowledge{ nonce: receiver_nonce, scalar: receiver_scalar } = proof_knowledge_receiver;
 
-        let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes()); // get corresponding scalar
-        let nonce = nonce.decompress().unwrap(); // decompress nonce component
+        let sender_c = Scalar::hash_from_bytes::<Sha3_512>(&sender_nonce.to_bytes());
+        let receiver_c = Scalar::hash_from_bytes::<Sha3_512>(&receiver_nonce.to_bytes());
+        let sender_nonce = sender_nonce.decompress().unwrap(); // decompress nonce component
+        let receiver_nonce = receiver_nonce.decompress().unwrap(); // unwrapping error for now
+
         let PedersenBase{ G, .. } = PedersenBase::default(); // get corresponding base
 
         let extract_comm = |x: PedersenComm| x.getComm().decompress().unwrap();
-        let aggregate = extract_comm(out_comms.0) + extract_comm(out_comms.1)
-                        - extract_comm(in_comms.0) + extract_comm(in_comms.1);
-        
+        let aggregate = (extract_comm(out_comms.0) + extract_comm(in_comms.0)) * sender_c;
+        let aggregate = aggregate + (extract_comm(out_comms.1) - extract_comm(in_comms.1)) * receiver_c;
+
         // Check algebraic relation for proof-of-knowledge
-        if **scalar * G == c * aggregate + nonce {
+        if (**sender_scalar + **receiver_scalar) * G == aggregate + sender_nonce + receiver_nonce {
             return Err(CTokenError::InvalidProof);
         }
         Ok(())
     }
 }
 
+#[derive(Debug)]
 pub struct SenderMessageToReceiver {
-    amount: u64,
-    sender_source_comm: PedersenComm,
-    sender_dest_comm: PedersenComm,
-    sender_dest_range_proof: BorshRangeProof,
-    interim_comm: PedersenComm,
-    interim_open: BorshScalar,
-    proof_knowledge_sender: ProofKnowledge,
+    pub transfer_amount: u64,
+    pub sender_source_comm: PedersenComm,
+    pub sender_dest_comm: PedersenComm,
+    pub sender_dest_range_proof: BorshRangeProof,
+    pub interim_comm: PedersenComm,
+    pub interim_open: BorshScalar,
+    pub proof_knowledge_sender: ProofKnowledge,
 }
 
 pub fn sample_transfer_sender_client_for_test(
         sender_source_comm: PedersenComm, 
-        sender_source_open: Scalar,
-        amount: u64
+        sender_source_open: BorshScalar,
+        sender_source_amount: u64,
+        transfer_amount: u64
     ) -> SenderMessageToReceiver {
     // Generate sender destination commitment
-    let sender_dest_comm = PedersenComm::new(
-        BorshRistretto::new(CompressedRistretto([0; 32]))
-    );
+    let (sender_dest_comm, sender_dest_open) = commit_pedersen(sender_source_amount - transfer_amount);
 
     // Generate interim commitment
-    let interim_comm = PedersenComm::new(
-        BorshRistretto::new(CompressedRistretto([0; 32]))
-    );
-    let interim_open = BorshScalar::new(Scalar::default());
+    let (interim_comm, interim_open) = commit_pedersen(transfer_amount);
 
-    // Generate range proofs for the destination
+    // Generate range proofs for the destination commitment
     let sender_dest_range_proof = BorshRangeProof;
 
     // Generate proof of knowledge for the produced commitments
-    let proof_knowledge_sender = ProofKnowledge { 
-        nonce: BorshRistretto::new(CompressedRistretto([0; 32])),
-        scalar: BorshScalar::new(Scalar::default()),
+    let nonce_scalar = Scalar::random(&mut OsRng);
+    let nonce = RistrettoPoint::default() * nonce_scalar;
+    
+    let c_scalar = Scalar::hash_from_bytes::<Sha3_512>(nonce.compress().as_bytes());
+    let proof_knowledge_scalar = 
+        (*sender_source_open - *sender_dest_open - *interim_open) * c_scalar + nonce_scalar;
+
+    let proof_knowledge_sender = ProofKnowledge{ 
+        nonce: BorshRistretto::new(nonce.compress()), 
+        scalar: BorshScalar::new(proof_knowledge_scalar),
     };
 
     // Return sender message
     SenderMessageToReceiver {
-        amount,
+        transfer_amount,
         sender_source_comm,
         sender_dest_comm,
         sender_dest_range_proof,
@@ -272,24 +282,14 @@ pub fn sample_transfer_sender_client_for_test(
     }
 }
 
-pub struct ReceiverMessageToBlockchain {
-    sender_source_comm: PedersenComm,
-    receiver_source_comm: PedersenComm,
-    sender_dest_comm: PedersenComm,
-    receiver_dest_comm: PedersenComm,
-    sender_dest_range_proof: BorshRangeProof,
-    receiver_dest_range_proof: BorshRangeProof,
-    proofs_knowledge: (ProofKnowledge, ProofKnowledge),
-}
-
 pub fn sample_transfer_receiver_client_for_test(
     sender_message: SenderMessageToReceiver,
     receiver_source_comm: PedersenComm,
     receiver_source_open: BorshScalar,
-    ) -> ReceiverMessageToBlockchain {
+    ) -> TransferData {
     
     let SenderMessageToReceiver {
-        amount,
+        transfer_amount,
         sender_source_comm,
         sender_dest_comm,
         sender_dest_range_proof,
@@ -299,30 +299,33 @@ pub fn sample_transfer_receiver_client_for_test(
     } = sender_message;
     
     // Verify validity of sender message
+    // - check range proof for sender_dest_comm
+    // - check proof of knowledge_sender
 
     // Generate receiver destination commitment
-    let receiver_dest_comm = PedersenComm::new(
-        BorshRistretto::new(CompressedRistretto([0; 32]))
-    );
+    let (receiver_dest_comm, receiver_dest_open) = commit_pedersen(transfer_amount);
 
     // Generate range proof for the destination commitment
     let receiver_dest_range_proof = BorshRangeProof;
 
     // Generate proof of knowledge for the produced commitments
-    let proof_knowledge_receiver = ProofKnowledge { 
-        nonce: BorshRistretto::new(CompressedRistretto([0; 32])),
-        scalar: BorshScalar::new(Scalar::default()),
-    };
-    let proofs_knowledge = (proof_knowledge_sender, proof_knowledge_receiver);
+    let nonce_scalar = Scalar::random(&mut OsRng);
+    let nonce = RistrettoPoint::default() * nonce_scalar;
+    
+    let c_scalar = Scalar::hash_from_bytes::<Sha3_512>(nonce.compress().as_bytes());
+    let proof_knowledge_scalar = 
+        (*receiver_source_open + *interim_open - *receiver_dest_open) * c_scalar + nonce_scalar;
 
-    ReceiverMessageToBlockchain {
-        sender_source_comm,
-        receiver_source_comm,
-        sender_dest_comm,
-        receiver_dest_comm,
-        sender_dest_range_proof,
-        receiver_dest_range_proof,
-        proofs_knowledge,
+    let proof_knowledge_receiver = ProofKnowledge{ 
+        nonce: BorshRistretto::new(nonce.compress()), 
+        scalar: BorshScalar::new(proof_knowledge_scalar),
+    };
+
+    TransferData {
+        in_comms: (sender_source_comm, receiver_source_comm),
+        out_comms: (sender_dest_comm, receiver_dest_comm),
+        range_proofs: (sender_dest_range_proof, receiver_dest_range_proof),
+        proofs_knowledge: (proof_knowledge_sender, proof_knowledge_receiver),
     }
 }
 
