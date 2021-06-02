@@ -1,19 +1,17 @@
-use borsh::{BorshSerialize, BorshDeserialize};
-use std::io::{Write, Error};
+use borsh::{BorshDeserialize, BorshSerialize};
 use std::io;
+use std::io::{Error, Write};
 use std::ops::Deref;
 
-use crate::{
-    proof::{BorshRistretto, PedersenComm},
-};
+use crate::proof::{BorshRistretto, PedersenComm};
 use curve25519_dalek::ristretto::CompressedRistretto;
 
+use arrayref::array_ref;
 use solana_program::{
+    program_error::ProgramError,
     program_pack::{IsInitialized, Pack, Sealed},
     pubkey::Pubkey,
-    program_error::ProgramError,
 };
-use arrayref::array_ref;
 
 /// Mint data.
 #[repr(C)]
@@ -42,12 +40,7 @@ impl Pack for Mint {
         }
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        dst.copy_from_slice(
-            self
-            .try_to_vec()
-            .unwrap()
-            .as_ref()
-        );
+        dst.copy_from_slice(self.try_to_vec().unwrap().as_ref());
     }
 }
 
@@ -78,17 +71,12 @@ impl Pack for Account {
         }
     }
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        dst.copy_from_slice(
-            self
-            .try_to_vec()
-            .unwrap()
-            .as_ref()
-        );
+        dst.copy_from_slice(self.try_to_vec().unwrap().as_ref());
     }
 }
 
-/// For some reason, I cannot derive BorshDeserialize and BorshSerialize for 
-/// the Pubkey type. This is a newbie issue. Let me create a new type wrapper 
+/// For some reason, I cannot derive BorshDeserialize and BorshSerialize for
+/// the Pubkey type. This is a newbie issue. Let me create a new type wrapper
 /// for now.
 ///
 /// Type wrapper of Pubkey: to implement the Borsh Serialize/Deserialize traits
@@ -102,7 +90,7 @@ impl BorshPubkey {
 }
 impl Deref for BorshPubkey {
     type Target = Pubkey;
-    
+
     fn deref(&self) -> &Pubkey {
         let Self(pubkey) = self;
         pubkey
@@ -123,7 +111,6 @@ impl BorshDeserialize for BorshPubkey {
         Ok(BorshPubkey(pubkey))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -149,7 +136,7 @@ mod tests {
         let mut packed = vec![0; Mint::get_packed_len()];
         Mint::pack(check, &mut packed).unwrap();
         let expect = vec![
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 1, 1, // 32 bytes for mint authority pubkey
             42, 0, 0, 0, 0, 0, 0, 0, // 8 bytes for supply
             1, // 1 byte for is_initialized
@@ -179,7 +166,7 @@ mod tests {
         let mut packed = vec![0; Account::get_packed_len()];
         Account::pack(check, &mut packed).unwrap();
         let expect = vec![
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 1, 1, // 32 bytes for mint pubkey
             1, // 1 byte for is_initialized
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

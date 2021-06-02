@@ -1,18 +1,15 @@
 #![allow(non_snake_case)]
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use curve25519_dalek::{
-    ristretto::RistrettoPoint,
-    ristretto::CompressedRistretto,
-    scalar::Scalar,
-    constants::RISTRETTO_BASEPOINT_POINT,
-    constants::RISTRETTO_BASEPOINT_COMPRESSED,
+    constants::RISTRETTO_BASEPOINT_COMPRESSED, constants::RISTRETTO_BASEPOINT_POINT,
+    ristretto::CompressedRistretto, ristretto::RistrettoPoint, scalar::Scalar,
 };
 use sha3::Sha3_512;
-use borsh::{BorshSerialize, BorshDeserialize};
 // use bulletproofs::RangeProof;
-use std::io::{Write, Error};
-use std::io;
 use arrayref::array_ref;
+use std::io;
+use std::io::{Error, Write};
 use std::ops::Deref;
 
 use rand_core::OsRng; // Only for generating commitments
@@ -25,9 +22,8 @@ pub struct ProofKnowledge {
     pub scalar: BorshScalar,
 }
 
-
 /// Struct that holds algorithms related to Pedersen commitments as static functions
-/// 
+///
 /// This struct is purely for code organization and can be removed as the crypto API evolves
 pub struct Pedersen;
 
@@ -57,14 +53,13 @@ pub struct PedersenComm {
 }
 impl PedersenComm {
     pub fn new(comm: BorshRistretto) -> Self {
-        Self{ comm }
+        Self { comm }
     }
     pub fn getComm(&self) -> BorshRistretto {
         self.comm
     }
 }
 impl Pedersen {
-
     // Ideally, there should be a PedersenComm constructor that samples a random opening and
     // produces a Pedersen commitment. Putting the constructor in the tests for now since it is a
     // randomized function. Ultimately, we should package the crypto component into a separate
@@ -72,13 +67,13 @@ impl Pedersen {
 
     /// Given a commitment along with the corresponding base points, opening, and the committed
     /// value, verifies the validity of the commitment.
-    pub fn verify_commitment (
+    pub fn verify_commitment(
         comm: &PedersenComm, // commitment to be verified
         base: &PedersenBase, // base points for the commitment
         open: &Scalar,       // opening for the commitment
         val: &Scalar,        // committed value
     ) -> bool {
-        let PedersenBase{ G, H } = base;
+        let PedersenBase { G, H } = base;
         *comm.getComm() == (open * G + val * H).compress()
     }
 }
@@ -113,9 +108,9 @@ impl BorshDeserialize for BorshScalar {
         let scalar = Scalar::from_canonical_bytes(*array_ref![buf, 0, 32]);
         if scalar.is_none() {
             return Err(io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Scalar deserialize error"
-            ))
+                std::io::ErrorKind::InvalidData,
+                "Scalar deserialize error",
+            ));
         };
         *buf = &buf[32..];
         Ok(BorshScalar(scalar.unwrap()))
@@ -169,7 +164,7 @@ pub struct BorshRangeProof;
 // }
 // impl Deref for BorshRangeProof {
 //     type Target = RangeProof;
-// 
+//
 //     fn deref(&self) -> &RangeProof {
 //         let Self(range_proof) = self;
 //         range_proof
@@ -221,20 +216,19 @@ pub struct BorshRangeProof;
 //         let ElGamalBase{ G, H } = base;
 //         let mut rng = OsRng;
 //         let open = Scalar::random(&mut rng);
-// 
+//
 //         let R = open*G;
 //         let C = R + val*H;
-//         let comm = ElGamalComm{ 
-//             R: R.compress(), 
-//             C: C.compress() 
+//         let comm = ElGamalComm{
+//             R: R.compress(),
+//             C: C.compress()
 //         };
 //         (comm, open)
 //     }
 // }
 
-
 pub fn commit_pedersen(amount: u64) -> (PedersenComm, BorshScalar) {
-    let PedersenBase{ G, H } = PedersenBase::default();
+    let PedersenBase { G, H } = PedersenBase::default();
 
     // Sample a random opening
     let open = Scalar::random(&mut OsRng);
@@ -244,10 +238,10 @@ pub fn commit_pedersen(amount: u64) -> (PedersenComm, BorshScalar) {
     let C = open * G + amount_scalar * H;
 
     // Wrap the commitment component into PedersenComm
-    let comm = PedersenComm { comm: BorshRistretto(C.compress()) };
+    let comm = PedersenComm {
+        comm: BorshRistretto(C.compress()),
+    };
 
     // Return the commitment and the corresponding opening
     (comm, BorshScalar::new(open))
 }
-
-
