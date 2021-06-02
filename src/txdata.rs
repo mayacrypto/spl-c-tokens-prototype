@@ -1,11 +1,11 @@
-use borsh::{BorshSerialize, BorshDeserialize};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
     error::CTokenError,
     proof::{
-        BorshRangeProof, BorshRistretto, BorshScalar, PedersenComm, ProofKnowledge,
-        PedersenBase, commit_pedersen,
-    }
+        commit_pedersen, BorshRangeProof, BorshRistretto, BorshScalar, PedersenBase, PedersenComm,
+        ProofKnowledge,
+    },
 };
 use sha3::Sha3_512;
 
@@ -21,14 +21,14 @@ use rand_core::OsRng; // Only for generating commitments and proof of knowledge
 // //     BulletproofGens,
 // // };
 // // use merlin::Transcript;
-// 
-// // Bit length for the Bulletproof range proof. 
-// // 
+//
+// // Bit length for the Bulletproof range proof.
+// //
 // // Proof verification scales linearly with the bit length. If 32 bits of token granularity suffices
 // // for applications, then this will decrease the cost of verification by half.
-// // 
+// //
 // const RANGE_BIT_LENGTH: usize = 64;
-// 
+//
 // const TX_VEC_SIZE: usize = 2;
 
 /// Intuitively, we can think of an SPL confidential token account as a regular SPL token account
@@ -40,7 +40,7 @@ use rand_core::OsRng; // Only for generating commitments and proof of knowledge
 /// anonymity (hiding the TX graph), is of concern. For settings where we want both confidentiality
 /// and anonymity, we would use El Gamal, which consists of two 32-byte compressed Ristretto
 /// points.
-/// 
+///
 /// Since token amounts are wrapped inside commitments, complications do arise in how we want to
 /// manage these accounts regarding issues like rent. For the prototype code, we put these issues
 /// aside and focus on transaction verification since we are primarily interested in the cost of
@@ -91,7 +91,6 @@ use rand_core::OsRng; // Only for generating commitments and proof of knowledge
 ///     for the prototype code, this optimization is not made to prevent possible confusion.
 ///
 
-
 /// Trait for any transaction data requiring direct cryptographic verification using on-chain code.
 pub trait CryptoVerRequired {
     fn verify_crypto(&self) -> Result<(), CTokenError>;
@@ -100,7 +99,7 @@ pub trait CryptoVerRequired {
 /// Data required for a Mint instruction
 ///
 /// There are no input commitments, but only output commitments. Verification consist of:
-/// - Range proof verification for each of the output commitments 
+/// - Range proof verification for each of the output commitments
 /// - Proof of knowledge verification that the sum of the output commitments indeed contain the
 ///   specified amount create
 ///
@@ -117,10 +116,15 @@ pub struct MintData {
 }
 impl CryptoVerRequired for MintData {
     fn verify_crypto(&self) -> Result<(), CTokenError> {
-        let Self { amount, out_comm, range_proof, proof_knowledge } = self;
+        let Self {
+            amount,
+            out_comm,
+            range_proof,
+            proof_knowledge,
+        } = self;
 
         // Skipping range proof verification for now
-        // 
+        //
         // // Verify range proofs
         // for (comm, range_proof) in out_comms {
         //     range_proof.verify_single(
@@ -137,8 +141,8 @@ impl CryptoVerRequired for MintData {
 
         let c = Scalar::hash_from_bytes::<Sha3_512>(&nonce.to_bytes()); // get corresponding scalar
         let nonce = nonce.decompress().unwrap(); // decompress nonce component
-        let PedersenBase{ G, .. } = PedersenBase::default(); // get corresponding base
-        let amount_ristretto = Scalar::from(*amount)*G; // encode amount into a Ristretto point
+        let PedersenBase { G, .. } = PedersenBase::default(); // get corresponding base
+        let amount_ristretto = Scalar::from(*amount) * G; // encode amount into a Ristretto point
         let out_comm_ristretto = out_comm.getComm().decompress().unwrap();
 
         // Check algebraic relation for proof-of-knowledge
@@ -150,22 +154,20 @@ impl CryptoVerRequired for MintData {
 }
 
 /// Initializes a mint transaction.
-/// 
+///
 /// This function should only be used for testing purposes. A real mint client
 /// should have constant runtime.
 ///
 pub fn sample_mint_client_for_test(amount: u64) -> MintData {
     // Generate commitment
-    let pedersen_comm = PedersenComm::new(
-        BorshRistretto::new(CompressedRistretto([0; 32]))
-    );
+    let pedersen_comm = PedersenComm::new(BorshRistretto::new(CompressedRistretto([0; 32])));
     let out_comm = pedersen_comm;
 
     // Generate range proof for the commitment
     let range_proof = BorshRangeProof;
 
     // Generate proof of knowledge for the produced commitments
-    let proof_knowledge = ProofKnowledge { 
+    let proof_knowledge = ProofKnowledge {
         nonce: BorshRistretto::new(CompressedRistretto([0; 32])),
         scalar: BorshScalar::new(Scalar::default()),
     };
@@ -182,7 +184,7 @@ pub fn sample_mint_client_for_test(amount: u64) -> MintData {
 /// Data required for a Transfer instruction
 ///
 /// Verification consist of:
-/// - Range proof verification for each of the output commitments 
+/// - Range proof verification for each of the output commitments
 /// - Proof of knowledge verification that the sum of the input and output commitments contain 0
 ///
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -198,8 +200,13 @@ pub struct TransferData {
 }
 impl CryptoVerRequired for TransferData {
     fn verify_crypto(&self) -> Result<(), CTokenError> {
-        let Self { in_comms, out_comms, range_proofs, proofs_knowledge } = self;
-        
+        let Self {
+            in_comms,
+            out_comms,
+            range_proofs,
+            proofs_knowledge,
+        } = self;
+
         // Skipping range proof verification for now
         //
         // // Verify range proofs
@@ -215,19 +222,26 @@ impl CryptoVerRequired for TransferData {
 
         // Setup for proof-of-knowledge verification
         let (proof_knowledge_sender, proof_knowledge_receiver) = proofs_knowledge;
-        let ProofKnowledge{ nonce: sender_nonce, scalar: sender_scalar } = proof_knowledge_sender;
-        let ProofKnowledge{ nonce: receiver_nonce, scalar: receiver_scalar } = proof_knowledge_receiver;
+        let ProofKnowledge {
+            nonce: sender_nonce,
+            scalar: sender_scalar,
+        } = proof_knowledge_sender;
+        let ProofKnowledge {
+            nonce: receiver_nonce,
+            scalar: receiver_scalar,
+        } = proof_knowledge_receiver;
 
         let sender_c = Scalar::hash_from_bytes::<Sha3_512>(&sender_nonce.to_bytes());
         let receiver_c = Scalar::hash_from_bytes::<Sha3_512>(&receiver_nonce.to_bytes());
         let sender_nonce = sender_nonce.decompress().unwrap(); // decompress nonce component
         let receiver_nonce = receiver_nonce.decompress().unwrap(); // unwrapping error for now
 
-        let PedersenBase{ G, .. } = PedersenBase::default(); // get corresponding base
+        let PedersenBase { G, .. } = PedersenBase::default(); // get corresponding base
 
         let extract_comm = |x: PedersenComm| x.getComm().decompress().unwrap();
         let aggregate = (extract_comm(out_comms.0) + extract_comm(in_comms.0)) * sender_c;
-        let aggregate = aggregate + (extract_comm(out_comms.1) - extract_comm(in_comms.1)) * receiver_c;
+        let aggregate =
+            aggregate + (extract_comm(out_comms.1) - extract_comm(in_comms.1)) * receiver_c;
 
         // Check algebraic relation for proof-of-knowledge
         // if (**sender_scalar + **receiver_scalar) * G != aggregate + sender_nonce + receiver_nonce {
@@ -239,11 +253,11 @@ impl CryptoVerRequired for TransferData {
 
 /// Initializes a transaction.
 ///
-/// A transation is initiated first by the sender who provides the receiver with information 
-/// regarding its commiment and other values (see below). The receiver then combines the 
+/// A transation is initiated first by the sender who provides the receiver with information
+/// regarding its commiment and other values (see below). The receiver then combines the
 /// information provided by the sender with its own infomation and generates a transaction
 /// data to be submitted to the blockchain.
-/// 
+///
 
 /// Struct that models the information that the sender sends to the receiver of the token.
 #[derive(Debug)]
@@ -270,13 +284,14 @@ pub struct SenderMessageToReceiver {
 /// protocol. A real transfer client should have constant runtime.
 ///
 pub fn sample_transfer_sender_client_for_test(
-        sender_source_comm: PedersenComm, 
-        sender_source_open: BorshScalar,
-        sender_source_amount: u64,
-        transfer_amount: u64
-    ) -> SenderMessageToReceiver {
+    sender_source_comm: PedersenComm,
+    sender_source_open: BorshScalar,
+    sender_source_amount: u64,
+    transfer_amount: u64,
+) -> SenderMessageToReceiver {
     // Generate sender destination commitment
-    let (sender_dest_comm, sender_dest_open) = commit_pedersen(sender_source_amount - transfer_amount);
+    let (sender_dest_comm, sender_dest_open) =
+        commit_pedersen(sender_source_amount - transfer_amount);
 
     // Generate interim commitment
     let (interim_comm, interim_open) = commit_pedersen(transfer_amount);
@@ -287,13 +302,13 @@ pub fn sample_transfer_sender_client_for_test(
     // Generate proof of knowledge for the produced commitments
     let nonce_scalar = Scalar::random(&mut OsRng);
     let nonce = RistrettoPoint::default() * nonce_scalar;
-    
+
     let c_scalar = Scalar::hash_from_bytes::<Sha3_512>(nonce.compress().as_bytes());
-    let proof_knowledge_scalar = 
+    let proof_knowledge_scalar =
         (*sender_source_open - *sender_dest_open - *interim_open) * c_scalar + nonce_scalar;
 
-    let proof_knowledge_sender = ProofKnowledge{ 
-        nonce: BorshRistretto::new(nonce.compress()), 
+    let proof_knowledge_sender = ProofKnowledge {
+        nonce: BorshRistretto::new(nonce.compress()),
         scalar: BorshScalar::new(proof_knowledge_scalar),
     };
 
@@ -313,8 +328,7 @@ pub fn sample_transfer_receiver_client_for_test(
     sender_message: SenderMessageToReceiver,
     receiver_source_comm: PedersenComm,
     receiver_source_open: BorshScalar,
-    ) -> TransferData {
-    
+) -> TransferData {
     let SenderMessageToReceiver {
         transfer_amount,
         sender_source_comm,
@@ -324,7 +338,7 @@ pub fn sample_transfer_receiver_client_for_test(
         interim_open,
         proof_knowledge_sender,
     } = sender_message;
-    
+
     // Verify validity of sender message (interim_comm used here)
     // - check range proof for sender_dest_comm
     // - check proof of knowledge_sender
@@ -338,13 +352,13 @@ pub fn sample_transfer_receiver_client_for_test(
     // Generate proof of knowledge for the produced commitments
     let nonce_scalar = Scalar::random(&mut OsRng);
     let nonce = RistrettoPoint::default() * nonce_scalar;
-    
+
     let c_scalar = Scalar::hash_from_bytes::<Sha3_512>(nonce.compress().as_bytes());
-    let proof_knowledge_scalar = 
+    let proof_knowledge_scalar =
         (*receiver_source_open + *interim_open - *receiver_dest_open) * c_scalar + nonce_scalar;
 
-    let proof_knowledge_receiver = ProofKnowledge{ 
-        nonce: BorshRistretto::new(nonce.compress()), 
+    let proof_knowledge_receiver = ProofKnowledge {
+        nonce: BorshRistretto::new(nonce.compress()),
         scalar: BorshScalar::new(proof_knowledge_scalar),
     };
 
@@ -389,12 +403,10 @@ impl CryptoVerRequired for CloseAccountData {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand_core::OsRng;
 
     // TODO: Write tests here
-
 }

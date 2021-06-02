@@ -1,19 +1,18 @@
 use solana_program::{
-    program_pack::Pack,
     account_info::{next_account_info, next_account_infos, AccountInfo},
     entrypoint::ProgramResult,
-    pubkey::Pubkey,
     msg,
+    program_pack::Pack,
+    pubkey::Pubkey,
     sysvar::{rent::Rent, Sysvar},
 };
 
 use crate::{
-    instruction::CTokenInstruction,
-    state::{Mint, Account, BorshPubkey},
     error::CTokenError,
-    txdata::{CryptoVerRequired, MintData, TransferData, CloseAccountData},
+    instruction::CTokenInstruction,
+    state::{Account, BorshPubkey, Mint},
+    txdata::{CloseAccountData, CryptoVerRequired, MintData, TransferData},
 };
-
 
 /// Program state handler.
 pub struct Processor {}
@@ -23,7 +22,7 @@ impl Processor {
         accounts: &[AccountInfo],
         mint_authority: Pubkey,
     ) -> ProgramResult {
-        // Almost identical to the process_initialize_mint function in the 
+        // Almost identical to the process_initialize_mint function in the
         // regular SPL token program.
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
@@ -47,17 +46,13 @@ impl Processor {
         Ok(())
     }
 
-    pub fn process_mint(
-        accounts: &[AccountInfo],
-        mint_data: MintData,
-    ) -> ProgramResult {
-
+    pub fn process_mint(accounts: &[AccountInfo], mint_data: MintData) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let mint_info = next_account_info(account_info_iter)?;
         let dest_account_info = next_account_info(account_info_iter)?;
         let expected_authority = next_account_info(account_info_iter)?;
         let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
-        
+
         let mut dest_account = Account::unpack_unchecked(&dest_account_info.data.borrow())?;
 
         // In the protocol, commitments (encrypted token amount) are immutably
@@ -78,15 +73,13 @@ impl Processor {
             return Err(CTokenError::AlreadyInUse.into());
         }
 
-
         // Check rent exempt
         if !rent.is_exempt(dest_account_info.lamports(), dest_account_info.data_len()) {
             return Err(CTokenError::NotRentExempt.into());
         }
 
-
         // Verify all the crypto components:
-        // - verify that each newly generated commitments are valid commitments 
+        // - verify that each newly generated commitments are valid commitments
         //   to a positive 64-bit number
         // - verify that the sum of all the newly generated commitments contain
         //   the claimed mint amount
@@ -122,31 +115,41 @@ impl Processor {
         let mint_info = next_account_info(account_info_iter)?;
 
         let sender_source_account_info = next_account_info(account_info_iter)?;
-        let sender_source_account = Account::unpack_unchecked(&sender_source_account_info.data.borrow())?;
+        let sender_source_account =
+            Account::unpack_unchecked(&sender_source_account_info.data.borrow())?;
         let receiver_source_account_info = next_account_info(account_info_iter)?;
-        let receiver_source_account = Account::unpack_unchecked(&receiver_source_account_info.data.borrow())?;
+        let receiver_source_account =
+            Account::unpack_unchecked(&receiver_source_account_info.data.borrow())?;
 
         if (sender_source_account.comm, receiver_source_account.comm) != transfer_data.in_comms {
             return Err(CTokenError::CommitmentMismatch.into());
         }
 
-        if *sender_source_account.mint != *mint_info.key 
-            || *receiver_source_account.mint != *mint_info.key {
+        if *sender_source_account.mint != *mint_info.key
+            || *receiver_source_account.mint != *mint_info.key
+        {
             return Err(CTokenError::MintMismatch.into());
         }
 
         let sender_dest_account_info = next_account_info(account_info_iter)?;
-        let mut sender_dest_account = Account::unpack_unchecked(&sender_dest_account_info.data.borrow())?;
+        let mut sender_dest_account =
+            Account::unpack_unchecked(&sender_dest_account_info.data.borrow())?;
         let receiver_dest_account_info = next_account_info(account_info_iter)?;
-        let mut receiver_dest_account = Account::unpack_unchecked(&receiver_dest_account_info.data.borrow())?;
-        
+        let mut receiver_dest_account =
+            Account::unpack_unchecked(&receiver_dest_account_info.data.borrow())?;
+
         if sender_dest_account.is_initialized || receiver_dest_account.is_initialized {
             return Err(CTokenError::AlreadyInUse.into());
         }
-        
+
         let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
-        if !rent.is_exempt(sender_dest_account_info.lamports(), sender_dest_account_info.data_len()) || 
-            !rent.is_exempt(sender_dest_account_info.lamports(), sender_dest_account_info.data_len()) {
+        if !rent.is_exempt(
+            sender_dest_account_info.lamports(),
+            sender_dest_account_info.data_len(),
+        ) || !rent.is_exempt(
+            sender_dest_account_info.lamports(),
+            sender_dest_account_info.data_len(),
+        ) {
             return Err(CTokenError::NotRentExempt.into());
         }
 
@@ -165,12 +168,18 @@ impl Processor {
         sender_dest_account.mint = BorshPubkey::new(*mint_info.key);
         sender_dest_account.is_initialized = true;
         sender_dest_account.comm = transfer_data.out_comms.0;
-        Account::pack(sender_dest_account, &mut sender_dest_account_info.data.borrow_mut())?;
-        
+        Account::pack(
+            sender_dest_account,
+            &mut sender_dest_account_info.data.borrow_mut(),
+        )?;
+
         receiver_dest_account.mint = BorshPubkey::new(*mint_info.key);
         receiver_dest_account.is_initialized = true;
         receiver_dest_account.comm = transfer_data.out_comms.1;
-        Account::pack(receiver_dest_account, &mut receiver_dest_account_info.data.borrow_mut())?;
+        Account::pack(
+            receiver_dest_account,
+            &mut receiver_dest_account_info.data.borrow_mut(),
+        )?;
 
         Ok(())
     }
@@ -208,33 +217,28 @@ impl Processor {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         instruction::*,
         proof::{
-            BorshScalar, BorshRistretto, BorshRangeProof, PedersenComm, ProofKnowledge,
-            commit_pedersen,
+            commit_pedersen, BorshRangeProof, BorshRistretto, BorshScalar, PedersenComm,
+            ProofKnowledge,
         },
         txdata::{
-            sample_mint_client_for_test, sample_transfer_sender_client_for_test,
-            sample_transfer_receiver_client_for_test, 
+            sample_mint_client_for_test, sample_transfer_receiver_client_for_test,
+            sample_transfer_sender_client_for_test,
         },
     };
+    use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar};
     use solana_program::{
-        account_info::IntoAccountInfo, clock::Epoch, instruction::Instruction, sysvar::rent,
-        program_error::ProgramError,
+        account_info::IntoAccountInfo, clock::Epoch, instruction::Instruction,
+        program_error::ProgramError, sysvar::rent,
     };
     use solana_sdk::account::{
         create_account_for_test, create_is_signer_account_infos, Account as SolanaAccount,
     };
-    use curve25519_dalek::{
-        ristretto::CompressedRistretto,
-        scalar::Scalar,
-    };
-
 
     fn do_process_instruction(
         instruction: Instruction,
@@ -274,7 +278,8 @@ mod tests {
         do_process_instruction(
             initialize_mint(&program_id, &mint_key, &mint_authority_key).unwrap(),
             vec![&mut mint_account, &mut rent_sysvar],
-        ).unwrap();
+        )
+        .unwrap();
 
         // create twice
         assert_eq!(
@@ -301,9 +306,9 @@ mod tests {
     #[test]
     fn test_mint() {
         let program_id = crate::id();
-        
+
         let mint_key = Pubkey::new_unique();
-        let mut mint_account = 
+        let mut mint_account =
             SolanaAccount::new(mint_minimum_balance(), Mint::get_packed_len(), &program_id);
 
         let mint_authority_key = Pubkey::new_unique();
@@ -315,8 +320,9 @@ mod tests {
         do_process_instruction(
             initialize_mint(&program_id, &mint_key, &mint_authority_key).unwrap(),
             vec![&mut mint_account, &mut rent_sysvar],
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         // create an account
         let account_key = Pubkey::new_unique();
         let mut account_account = SolanaAccount::new(
@@ -328,10 +334,22 @@ mod tests {
         let mint_data = sample_mint_client_for_test(57);
 
         do_process_instruction(
-            mint(&program_id, &mint_key, &account_key, &mint_authority_key, mint_data).unwrap(), 
-            vec![&mut mint_account, &mut account_account, &mut mint_authority_account, 
-            &mut rent_sysvar],
-        ).unwrap();
+            mint(
+                &program_id,
+                &mint_key,
+                &account_key,
+                &mint_authority_key,
+                mint_data,
+            )
+            .unwrap(),
+            vec![
+                &mut mint_account,
+                &mut account_account,
+                &mut mint_authority_account,
+                &mut rent_sysvar,
+            ],
+        )
+        .unwrap();
 
         // The mint supply should be updated.
         let mint_state = Mint::unpack_unchecked(&mint_account.data).unwrap();
@@ -341,14 +359,24 @@ mod tests {
         let account = Account::unpack_unchecked(&account_account.data).unwrap();
         assert_eq!(account.comm, mint_data.out_comm);
 
-
         // test for account already-in-use error
         assert_eq!(
             Err(CTokenError::AlreadyInUse.into()),
             do_process_instruction(
-                mint(&program_id, &mint_key, &account_key, &mint_authority_key, mint_data).unwrap(), 
-                vec![&mut mint_account, &mut account_account, &mut mint_authority_account,
-                &mut rent_sysvar],
+                mint(
+                    &program_id,
+                    &mint_key,
+                    &account_key,
+                    &mint_authority_key,
+                    mint_data
+                )
+                .unwrap(),
+                vec![
+                    &mut mint_account,
+                    &mut account_account,
+                    &mut mint_authority_account,
+                    &mut rent_sysvar
+                ],
             )
         );
 
@@ -363,10 +391,22 @@ mod tests {
         let mint_data = sample_mint_client_for_test(43);
 
         do_process_instruction(
-            mint(&program_id, &mint_key, &account2_key, &mint_authority_key, mint_data).unwrap(), 
-            vec![&mut mint_account, &mut account2_account, &mut mint_authority_account,
-            &mut rent_sysvar],
-        ).unwrap();
+            mint(
+                &program_id,
+                &mint_key,
+                &account2_key,
+                &mint_authority_key,
+                mint_data,
+            )
+            .unwrap(),
+            vec![
+                &mut mint_account,
+                &mut account2_account,
+                &mut mint_authority_account,
+                &mut rent_sysvar,
+            ],
+        )
+        .unwrap();
 
         // The mint supply should be updated.
         let mint_state = Mint::unpack_unchecked(&mint_account.data).unwrap();
@@ -375,7 +415,6 @@ mod tests {
         // The commitment in the associated account should be updated.
         let account = Account::unpack_unchecked(&account2_account.data).unwrap();
         assert_eq!(account.comm, mint_data.out_comm);
-
 
         // TODO: Test for invalid Proof of Knowledge and Range Proof
     }
@@ -386,7 +425,7 @@ mod tests {
         let program_id = crate::id();
 
         let mint_key = Pubkey::new_unique();
-        let mut mint_account = 
+        let mut mint_account =
             SolanaAccount::new(mint_minimum_balance(), Mint::get_packed_len(), &program_id);
 
         let mint_authority_key = Pubkey::new_unique();
@@ -398,7 +437,8 @@ mod tests {
         do_process_instruction(
             initialize_mint(&program_id, &mint_key, &mint_authority_key).unwrap(),
             vec![&mut mint_account, &mut rent_sysvar],
-        ).unwrap();
+        )
+        .unwrap();
 
         // create sender account
         let sender_source_key = Pubkey::new_unique();
@@ -413,10 +453,22 @@ mod tests {
         mint_data.out_comm = sender_source_comm;
 
         do_process_instruction(
-            mint(&program_id, &mint_key, &sender_source_key, &mint_authority_key, mint_data).unwrap(), 
-            vec![&mut mint_account, &mut sender_source_account, &mut mint_authority_account, 
-            &mut rent_sysvar],
-        ).unwrap();
+            mint(
+                &program_id,
+                &mint_key,
+                &sender_source_key,
+                &mint_authority_key,
+                mint_data,
+            )
+            .unwrap(),
+            vec![
+                &mut mint_account,
+                &mut sender_source_account,
+                &mut mint_authority_account,
+                &mut rent_sysvar,
+            ],
+        )
+        .unwrap();
 
         // create receiver account
         let receiver_source_key = Pubkey::new_unique();
@@ -431,29 +483,35 @@ mod tests {
         mint_data.out_comm = receiver_source_comm;
 
         do_process_instruction(
-            mint(&program_id, &mint_key, &receiver_source_key, &mint_authority_key, mint_data).unwrap(), 
-            vec![&mut mint_account, &mut receiver_source_account, &mut mint_authority_account, 
-            &mut rent_sysvar],
-        ).unwrap();
+            mint(
+                &program_id,
+                &mint_key,
+                &receiver_source_key,
+                &mint_authority_key,
+                mint_data,
+            )
+            .unwrap(),
+            vec![
+                &mut mint_account,
+                &mut receiver_source_account,
+                &mut mint_authority_account,
+                &mut rent_sysvar,
+            ],
+        )
+        .unwrap();
 
         // ------------------------- Client Side -------------------------------
-        
+
         // Sender's message to receiver
-        let sender_message_to_receiver = 
-            sample_transfer_sender_client_for_test(
-                sender_source_comm,
-                sender_source_open,
-                77,
-                55,
-            );
-        
+        let sender_message_to_receiver =
+            sample_transfer_sender_client_for_test(sender_source_comm, sender_source_open, 77, 55);
+
         // Receiver's message to blockchain
-        let transfer_data = 
-            sample_transfer_receiver_client_for_test(
-                sender_message_to_receiver,
-                receiver_source_comm,
-                receiver_source_open, 
-            );
+        let transfer_data = sample_transfer_receiver_client_for_test(
+            sender_message_to_receiver,
+            receiver_source_comm,
+            receiver_source_open,
+        );
 
         // --------------------- Submit to Blockchain --------------------------
 
@@ -472,17 +530,25 @@ mod tests {
         );
 
         do_process_instruction(
-            transfer(&program_id, &mint_key, &sender_source_key, &receiver_source_key, 
-                     &sender_dest_key, &receiver_dest_key, transfer_data).unwrap(),
-                     vec![&mut mint_account, &mut sender_source_account, &mut receiver_source_account,
-                     &mut sender_dest_account, &mut receiver_dest_account, &mut rent_sysvar]
-        ).unwrap();
-
+            transfer(
+                &program_id,
+                &mint_key,
+                &sender_source_key,
+                &receiver_source_key,
+                &sender_dest_key,
+                &receiver_dest_key,
+                transfer_data,
+            )
+            .unwrap(),
+            vec![
+                &mut mint_account,
+                &mut sender_source_account,
+                &mut receiver_source_account,
+                &mut sender_dest_account,
+                &mut receiver_dest_account,
+                &mut rent_sysvar,
+            ],
+        )
+        .unwrap();
     }
-
 }
-
-
-
-
-

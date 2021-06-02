@@ -1,19 +1,18 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     instruction::{AccountMeta, Instruction},
     program_error::ProgramError,
     pubkey::Pubkey,
     sysvar,
 };
-use borsh::{BorshSerialize, BorshDeserialize};
 use std::mem::size_of;
 
 use crate::{
     error::CTokenError::InvalidInstruction,
-    txdata::{MintData, TransferData, CloseAccountData},
+    txdata::{CloseAccountData, MintData, TransferData},
 };
 
 pub enum CTokenInstruction {
-
     /// Initializes a new mint.
     ///
     /// This is analogous to the `InitializeMint` instruction in the SPL token program with
@@ -26,9 +25,7 @@ pub enum CTokenInstruction {
     ///   0. `[writable]` The mint to initialize.
     ///   1. `[]` Rent sysvar
     ///
-    InitializeMint {
-        mint_authority: Pubkey,
-    },
+    InitializeMint { mint_authority: Pubkey },
     /// Mints new tokens.
     ///
     /// This is analogous to the combination of the `InitializeAccount` and `MintTo` instructions
@@ -92,19 +89,19 @@ impl CTokenInstruction {
             0 => {
                 let (mint_authority, _) = Self::unpack_pubkey(rest)?;
                 Self::InitializeMint { mint_authority }
-            },
+            }
             1 => {
                 let mint_data = MintData::try_from_slice(rest)?;
                 Self::Mint { mint_data }
-            },
+            }
             2 => {
                 let transfer_data = TransferData::try_from_slice(rest)?;
                 Self::Transfer { transfer_data }
-            },
+            }
             3 => {
                 let close_account_data = CloseAccountData::try_from_slice(rest)?;
                 Self::CloseAccount { close_account_data }
-            },
+            }
             _ => return Err(InvalidInstruction.into()),
         })
     }
@@ -112,30 +109,24 @@ impl CTokenInstruction {
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &Self::InitializeMint {
-                ref mint_authority,
-            } => {
+            &Self::InitializeMint { ref mint_authority } => {
                 buf.push(0);
                 buf.extend_from_slice(mint_authority.as_ref());
-            },
-            &Self::Mint {
-                ref mint_data,
-            } => {
+            }
+            &Self::Mint { ref mint_data } => {
                 buf.push(1);
                 buf.extend_from_slice(mint_data.try_to_vec().unwrap().as_ref());
-            },
-            &Self::Transfer {
-                ref transfer_data,
-            } => {
+            }
+            &Self::Transfer { ref transfer_data } => {
                 buf.push(2);
                 buf.extend_from_slice(transfer_data.try_to_vec().unwrap().as_ref());
-            },
+            }
             &Self::CloseAccount {
                 ref close_account_data,
             } => {
                 buf.push(3);
                 buf.extend_from_slice(close_account_data.try_to_vec().unwrap().as_ref());
-            },
+            }
         };
         buf
     }
@@ -243,4 +234,3 @@ pub fn close_account(
         data,
     })
 }
-
