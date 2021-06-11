@@ -1,24 +1,19 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use std::io;
-use std::io::{Error, Write};
-use std::ops::Deref;
 
-use crate::proof::{BorshRistretto, PedersenComm};
-use curve25519_dalek::ristretto::CompressedRistretto;
-
-use arrayref::array_ref;
 use solana_program::{
     program_error::ProgramError,
     program_pack::{IsInitialized, Pack, Sealed},
     pubkey::Pubkey,
 };
 
+use crate::crypto::PedersenComm;
+
 /// Mint data.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Mint {
     /// Mint authority.
-    pub mint_authority: BorshPubkey, // 32 bytes
+    pub mint_authority: Pubkey, // 32 bytes
     /// Total supply of tokens.
     pub supply: u64, // 8 bytes
     /// Is `true` if this structure has been initialized
@@ -49,7 +44,7 @@ impl Pack for Mint {
 #[derive(Clone, Copy, Debug, Default, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Account {
     /// The mint associated with this account
-    pub mint: BorshPubkey, // 32 bytes
+    pub mint: Pubkey, // 32 bytes
     /// Is `true` if this account has been initialized
     pub is_initialized: bool, // 1 byte
     /// The commitment associated with this account
@@ -75,43 +70,6 @@ impl Pack for Account {
     }
 }
 
-/// For some reason, I cannot derive BorshDeserialize and BorshSerialize for
-/// the Pubkey type. This is a newbie issue. Let me create a new type wrapper
-/// for now.
-///
-/// Type wrapper of Pubkey: to implement the Borsh Serialize/Deserialize traits
-/// using the New Type Pattern.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct BorshPubkey(Pubkey);
-impl BorshPubkey {
-    pub fn new(pubkey: Pubkey) -> Self {
-        Self(pubkey)
-    }
-}
-impl Deref for BorshPubkey {
-    type Target = Pubkey;
-
-    fn deref(&self) -> &Pubkey {
-        let Self(pubkey) = self;
-        pubkey
-    }
-}
-impl BorshSerialize for BorshPubkey {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        let Self(pubkey) = self;
-        let pubkey_bytes = pubkey.to_bytes();
-        writer.write(&pubkey_bytes)?;
-        Ok(())
-    }
-}
-impl BorshDeserialize for BorshPubkey {
-    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
-        let pubkey = Pubkey::new(array_ref![buf, 0, 32]);
-        *buf = &buf[32..];
-        Ok(BorshPubkey(pubkey))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,7 +77,7 @@ mod tests {
     #[test]
     fn test_pack_unpack_mint() {
         let check = Mint {
-            mint_authority: BorshPubkey::new(Pubkey::new(&[1; 32])),
+            mint_authority: Pubkey::new(&[1; 32]),
             supply: 42,
             is_initialized: true,
         };
@@ -149,9 +107,9 @@ mod tests {
     #[test]
     fn test_pack_unpack_account() {
         let check = Account {
-            mint: BorshPubkey::new(Pubkey::new(&[1; 32])),
+            mint: Pubkey::new(&[1; 32]),
             is_initialized: true,
-            comm: PedersenComm::new(BorshRistretto::new(CompressedRistretto([0; 32]))),
+            comm: PedersenComm([0; 32]),
         };
         let mut packed = vec![0; Account::get_packed_len() + 1];
         assert_eq!(

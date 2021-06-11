@@ -9,7 +9,7 @@ use std::mem::size_of;
 
 use crate::{
     error::CTokenError::InvalidInstruction,
-    txdata::{CloseAccountData, MintData, TransferData},
+    txdata::MintData,
 };
 
 pub enum CTokenInstruction {
@@ -42,44 +42,6 @@ pub enum CTokenInstruction {
         /// Data for the new tokens to mint.
         mint_data: MintData,
     },
-
-    /// Transfers tokens.
-    ///
-    /// This is analogous to the `Transfer` instruction in the SPL token program. There is no
-    /// signature check required for any accounts. The validity of the transaction is checked
-    /// internally by the c-token program.
-    ///
-    /// Accounts expected by this instruction:
-    ///
-    ///   0. `[]` The mint
-    ///   1. `[writable]` The first source account.
-    ///   2. `[writable]` The second source account
-    ///   3. `[writable]` The first destination account.
-    ///   4. `[writable]` The second destination account.
-    ///   5. `[]` Rent sysvar
-    ///
-    Transfer {
-        /// Data for the transfer
-        transfer_data: TransferData,
-    },
-
-    /// Close an account by transferring all its ZOL to the destination in SOL.
-    ///
-    /// This instruction is for prototyping purposes only and may be more natural as part of a
-    /// separate exchange program. For the prototype, 1 SOL equals 1 ZOL in value.
-    ///
-    /// There is no signature check required for any accounts. The validity of the transaction is
-    /// checked internally by the c-token program.
-    ///
-    /// Accounts expected by this instruction:
-    ///
-    ///   0. `[writable]` The source account.
-    ///   1. `[writable]` The destination account.
-    ///
-    CloseAccount {
-        /// Data for close account
-        close_account_data: CloseAccountData,
-    },
 }
 
 impl CTokenInstruction {
@@ -93,14 +55,6 @@ impl CTokenInstruction {
             1 => {
                 let mint_data = MintData::try_from_slice(rest)?;
                 Self::Mint { mint_data }
-            }
-            2 => {
-                let transfer_data = TransferData::try_from_slice(rest)?;
-                Self::Transfer { transfer_data }
-            }
-            3 => {
-                let close_account_data = CloseAccountData::try_from_slice(rest)?;
-                Self::CloseAccount { close_account_data }
             }
             _ => return Err(InvalidInstruction.into()),
         })
@@ -116,16 +70,6 @@ impl CTokenInstruction {
             &Self::Mint { ref mint_data } => {
                 buf.push(1);
                 buf.extend_from_slice(mint_data.try_to_vec().unwrap().as_ref());
-            }
-            &Self::Transfer { ref transfer_data } => {
-                buf.push(2);
-                buf.extend_from_slice(transfer_data.try_to_vec().unwrap().as_ref());
-            }
-            &Self::CloseAccount {
-                ref close_account_data,
-            } => {
-                buf.push(3);
-                buf.extend_from_slice(close_account_data.try_to_vec().unwrap().as_ref());
             }
         };
         buf
@@ -180,53 +124,6 @@ pub fn mint(
         AccountMeta::new(*account_pubkey, false),
         AccountMeta::new_readonly(*signer_pubkey, true),
         AccountMeta::new_readonly(sysvar::rent::id(), false),
-    ];
-    Ok(Instruction {
-        program_id: *c_token_program_id,
-        accounts,
-        data,
-    })
-}
-
-/// Creates a `Transfer` instruction.
-pub fn transfer(
-    c_token_program_id: &Pubkey,
-    mint_pubkey: &Pubkey,
-    sender_source_pubkey: &Pubkey,
-    receiver_source_pubkey: &Pubkey,
-    sender_dest_pubkey: &Pubkey,
-    receiver_dest_pubkey: &Pubkey,
-    transfer_data: TransferData,
-) -> Result<Instruction, ProgramError> {
-    let data = CTokenInstruction::Transfer { transfer_data }.pack();
-
-    let accounts = vec![
-        AccountMeta::new(*mint_pubkey, false),
-        AccountMeta::new(*sender_source_pubkey, false),
-        AccountMeta::new(*receiver_source_pubkey, false),
-        AccountMeta::new(*sender_dest_pubkey, false),
-        AccountMeta::new(*receiver_dest_pubkey, false),
-        AccountMeta::new_readonly(sysvar::rent::id(), false),
-    ];
-    Ok(Instruction {
-        program_id: *c_token_program_id,
-        accounts,
-        data,
-    })
-}
-
-/// Creates a `CloseAccount` instruction.
-pub fn close_account(
-    c_token_program_id: &Pubkey,
-    source_pubkey: &Pubkey,
-    destination_pubkey: &Pubkey,
-    close_account_data: CloseAccountData,
-) -> Result<Instruction, ProgramError> {
-    let data = CTokenInstruction::CloseAccount { close_account_data }.pack();
-
-    let accounts = vec![
-        AccountMeta::new(*source_pubkey, false),
-        AccountMeta::new(*destination_pubkey, false),
     ];
     Ok(Instruction {
         program_id: *c_token_program_id,
