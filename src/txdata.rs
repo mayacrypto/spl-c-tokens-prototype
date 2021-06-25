@@ -5,67 +5,6 @@ use crate::{
     error::CTokenError,
 };
 
-
-/// Intuitively, we can think of an SPL confidential token account as a regular SPL token account
-/// but where the token amount is wrapped inside commitments. We can intuitively think of
-/// commitments as an encryption of the token amount. In this prototype code, we specifically use
-/// Pedersen commitments, which consists of a single 32-byte compressed Ristretto point.
-///
-/// The use of Pedersen commitments is standard for settings where confidentiality, but not
-/// anonymity (hiding the TX graph), is of concern. For settings where we want both confidentiality
-/// and anonymity, we would use El Gamal, which consists of two 32-byte compressed Ristretto
-/// points.
-///
-/// Since token amounts are wrapped inside commitments, complications do arise in how we want to
-/// manage these accounts regarding issues like rent. For the prototype code, we put these issues
-/// aside and focus on transaction verification since we are primarily interested in the cost of
-/// these verifications.
-///
-/// A transaction consists of a vector of input commitments and output commitments (for the
-/// prototype code, we use an array of fixed size 2 for simplicity). An input commitment is a
-/// commitment held by one of the existing accounts. An output commitment is a commitment that is
-/// newly created by the transaction.
-///
-/// For transaction verification, we must verify the following:
-/// 1. Are the input commitments valid?
-///
-///     Given that input commitments are just output commitments that were produced in previous
-///     transactions, we can forgo input verification given that output commitments are verified
-///     correctly.
-///
-/// 2. Are the output commitments valid?
-///
-///     Output verification consist of verifying that the commitments are valid Pedersen
-///     commitments that wrap values in the range [0, 2^64]. This is done by range proofs in
-///     Bulletproofs.
-///
-/// 3. Are the input and output commitments consistent?
-///
-///     Consistency verification consist of verifying that the sum of the values inside the input
-///     commitments are equal to the sum of the values inside the output commitments. This is done
-///     by a custom proof-of-knowledge verification algorithm in proof.rs.
-///
-/// The proof-of-knowledge verification is essentially the cost of doing one Ed25519 signature
-/// verification. The bulk of the verification will be verifying the range proofs, which should
-/// require around 64*2 elliptic curve multiplication on Ristretto points (though each of these
-/// multiplications are largely independent and hence parallelizable operations).
-///
-/// Notes on one-time usage of accounts:
-///     - To prevent issues like front-running, an account is one-time-use per transaction. For
-///     example, suppose that an account with address [pk] holds a commitment [comm]. When the user
-///     spends tokens from this account, even if there are tokens left over from the transaction,
-///     the user must create a new account [pk'] with the new commitment [comm'] and purge the
-///     original account. There are other ways to prevent issues like front-running, but for the
-///     purpose of the prototype code, we make accounts one-time-use per transaction.
-///
-///     - An optimization (from MimbleWimble) that can be made is to replace [pk] with the
-///     commitment [comm]. Public keys and Pedersen commitments are all 32-bytes, and Pedersen
-///     commitments are also randomly generated (and hence, collisions are highly unlikely). This
-///     is quite natural when combined with the point above that accounts are one-time-use since
-///     commitments constantly change with transactions (and hence, addresses constantly change).
-///     for the prototype code, this optimization is not made to prevent possible confusion.
-///
-
 /// Trait for any transaction data requiring direct cryptographic verification using on-chain code.
 pub trait CryptoVerRequired {
     fn verify_crypto(&self) -> Result<(), CTokenError>;
@@ -135,28 +74,28 @@ impl CryptoVerRequired for MintData {
 /// This function should only be used for testing purposes. A real mint client
 /// should have constant runtime.
 ///
-pub fn sample_mint_client_for_test(amount: u64) -> MintData {
-    // Generate commitment
-    let pedersen_comm = PedersenComm([0; 32]);
-    let out_comm = pedersen_comm;
-
-    // Generate range proof for the commitment
-    let range_proof = RangeProof;
-
-    // Generate proof of knowledge for the produced commitments
-    let proof_knowledge = ProofKnowledge {
-        nonce: [0; 32],
-        scalar: [0; 32],
-    };
-
-    // Return mint data
-    MintData {
-        amount,
-        out_comm,
-        range_proof,
-        proof_knowledge,
-    }
-}
+// pub fn sample_mint_client_for_test(amount: u64) -> MintData {
+//     // Generate commitment
+//     let pedersen_comm = PedersenComm([0; 32]);
+//     let out_comm = pedersen_comm;
+// 
+//     // Generate range proof for the commitment
+//     let range_proof = RangeProof;
+// 
+//     // Generate proof of knowledge for the produced commitments
+//     let proof_knowledge = ProofKnowledge {
+//         nonce: [0; 32],
+//         scalar: [0; 32],
+//     };
+// 
+//     // Return mint data
+//     MintData {
+//         amount,
+//         out_comm,
+//         range_proof,
+//         proof_knowledge,
+//     }
+// }
 
 /// Data required for a Transfer instruction
 ///
