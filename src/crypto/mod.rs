@@ -42,18 +42,25 @@ impl PedersenComm {
     }
 }
 
-// // TODO: implement a struct for the El Gamal commitment (encryption)
-// pub struct ElGamalComm {
-//     /// TODO
-// }
-// 
-// impl ElGamalComm {
-//     pub fn verify_commitment(
-//         /// TODO
-//     ) -> bool {
-//         /// TODO
-//     }
-// }
+// //  a struct for the El Gamal commitment (encryption)
+//  Commitment = ((open * G), (val + open * H))
+#[derive(BorshDeserialize, BorshSerialize, Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ElGamalComm {
+    pub comm_h: BorshRistretto,
+    pub comm_g: BorshRistretto, 
+ }
+ 
+impl ElGamalComm {
+    pub fn verify_commitment(
+        comm: &ElGamalComm,
+        base: &CommitmentBase,
+        open: &Scalar,
+        val: &RistrettoPoint,
+    ) -> bool {
+        let CommitmentBase { G, H } = base;
+        (*comm.comm_g == (open * G).compress()) & (*comm.comm_h == (val + open * H).compress())
+    }
+}
 
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Copy, Debug, Default, Eq, PartialEq)]
