@@ -1,4 +1,7 @@
+
 #![allow(dead_code, non_snake_case)]
+
+extern crate rand_core;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -6,10 +9,10 @@ use arrayref::array_ref;
 use std::io;
 use std::io::{Error, Write};
 use std::ops::Deref;
-
+use sha3::Sha3_512;
 
 use curve25519_dalek::{
-    ristretto::CompressedRistretto, scalar::Scalar, ristretto::RistrettoPoint,
+    ristretto::CompressedRistretto, scalar::Scalar, ristretto::RistrettoPoint, constants::RISTRETTO_BASEPOINT_POINT, constants::RISTRETTO_BASEPOINT_COMPRESSED,
 };
 
 // #[derive(BorshDeserialize, BorshSerialize, Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -21,6 +24,19 @@ pub struct CommitmentBase {
     /// Base for the blinding factor
     pub H: RistrettoPoint,
 }
+
+// this creates a default assignmnent of CommitmentBase base points
+impl Default for CommitmentBase {
+    fn default() -> Self {
+        CommitmentBase {
+            G: RISTRETTO_BASEPOINT_POINT,
+            H: RistrettoPoint::hash_from_bytes::<Sha3_512>(
+                RISTRETTO_BASEPOINT_COMPRESSED.as_bytes(),
+            ),
+        }
+    }
+}
+
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PedersenComm {
@@ -42,7 +58,7 @@ impl PedersenComm {
     }
 }
 
-// //  a struct for the El Gamal commitment (encryption)
+// // TODO: implement a struct for the El Gamal commitment (encryption)
 //  Commitment = ((open * G), (val + open * H))
 #[derive(BorshDeserialize, BorshSerialize, Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ElGamalComm {
@@ -60,6 +76,20 @@ impl ElGamalComm {
         let CommitmentBase { G, H } = base;
         (*comm.comm_g == (open * G).compress()) & (*comm.comm_h == (val + open * H).compress())
     }
+
+
+    // a more detailed version of commitment verification that shows 
+    // which of the two commitment components wouldnt verify for a non-verifying opening
+    pub fn verify_commitment_detailed(
+        comm: &ElGamalComm,
+        base: &CommitmentBase,
+        open: &Scalar,
+        val: &RistrettoPoint,
+    ) -> (bool,bool) {
+        let CommitmentBase { G, H } = base;
+        ((*comm.comm_g == (open * G).compress()),(*comm.comm_h == (val + open * H).compress()))
+    }
+
 }
 
 
@@ -143,3 +173,78 @@ impl BorshDeserialize for BorshRistretto {
         Ok(BorshRistretto(ristretto))
     }
 }
+
+
+
+#[cfg(test)]
+mod tests_for_ElGamal {
+    use super::*;
+    use rand_core::OsRng;
+
+    // this test considers the default commitment base, a random val 
+    // and a random scalar and first commits to val
+    //then it checks whether verify_commitment_detailed() works on it or not
+    // the test must verify without any error
+
+    #[test]
+    fn elgamal_open_ver_shd_work()-> Result<(), String> {
+        let base: CommitmentBase = CommitmentBase::default();    
+        let mut prng = OsRng;
+
+        let val: RistrettoPoint = RistrettoPoint::random(&mut prng);
+        let open: Scalar = Scalar::random(&mut prng);
+        let CommitmentBase { G, H } = base;
+
+        let comm = ElGamalComm {
+            comm_g: BorshRistretto((open * G).compress()),
+            comm_h: BorshRistretto((val + open * H).compress()),
+        };
+
+        let (bool_g, bool_h) = ElGamalComm::verify_commitment_detailed(&comm, &base, &open, &val);
+        if (bool_g & bool_h) {
+            Ok(())
+        } else if (!bool_g & !bool_h){
+            Err(String::from("Oops, both open * G and val + open * H are incorrectly computed"))
+        } else if (bool_g == false){
+            Err(String::from("Oops, open * G is incorrectly computed"))
+        } else {
+            Err(String::from("Oops, val + open * H is incorrectly computed"))
+        }
+    }
+
+    // this test considers the default commitment base, a random val and a random scalar and first incorrectly 
+    //commits to val by interchaning comm_h and comm_g values
+    //then it checks whether verify_commitment_detailed() works on it or not
+    // the test shouldnt verify and should output the error "As expected, open * G and val + open * H are incorrectly computed"
+
+
+    #[test]
+    fn elgamal_open_ver_shdnt_work()-> Result<(), String> {
+        let base: CommitmentBase = CommitmentBase::default();    
+        let mut prng = OsRng;
+
+        let val: RistrettoPoint = RistrettoPoint::random(&mut prng);
+        let open: Scalar = Scalar::random(&mut prng);
+        let CommitmentBase { G, H } = base;
+
+        let comm = ElGamalComm {
+            comm_h: BorshRistretto((open * G).compress()),
+            comm_g: BorshRistretto((val + open * H).compress()),
+        };
+
+        let (bool_g, bool_h) = ElGamalComm::verify_commitment_detailed(&comm, &base, &open, &val);
+        if (bool_g & bool_h) {
+            Ok(())
+        } else if (!bool_g & !bool_h){
+            Err(String::from("As expected, open * G and val + open * H are incorrectly computed"))
+        }
+        else if (bool_g == false){
+            Err(String::from("As expected, open * G is incorrectly computed"))
+        } else {
+            Err(String::from("As expected, val + open * H is incorrectly computed"))
+        } 
+    }
+
+}
+
+
